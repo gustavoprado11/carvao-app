@@ -11,11 +11,7 @@ export const TextField: React.FC<Props> = ({ leading, trailing, style, ...props 
   return (
     <View style={styles.container}>
       {leading ? <View style={styles.accessory}>{leading}</View> : null}
-      <TextInput
-        placeholderTextColor="rgba(248,250,252,0.65)"
-        style={[styles.input, style]}
-        {...props}
-      />
+      <TextInput placeholderTextColor={colors.textSecondary} style={[styles.input, style]} {...props} />
       {trailing ? <View style={styles.accessory}>{trailing}</View> : null}
     </View>
   );
@@ -25,10 +21,10 @@ const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.glassSurface,
+    backgroundColor: colors.surface,
     borderRadius: spacing.lg,
     borderWidth: 1,
-    borderColor: colors.glassBorder,
+    borderColor: colors.border,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
     gap: spacing.xs
@@ -39,7 +35,7 @@ const styles = StyleSheet.create({
   input: {
     flex: 1,
     fontSize: 16,
-    color: colors.surface,
+    color: colors.textPrimary,
     paddingVertical: spacing.xs
   }
 });

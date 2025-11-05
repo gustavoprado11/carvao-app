@@ -1,0 +1,17 @@
+# Generated assets / caches (reduces upload size)
+node_modules/
+**/node_modules/**
+android/.gradle
+android/build
+android/app/build
+ios/Pods/
+ios/build/
+*.log
+.DS_Store
+.expo
+.expo-shared
+dist
+tmp
+.tmp
+./node_modules
+.gradle/

@@ -10,7 +10,7 @@ import React, {
 import { useProfile } from './ProfileContext';
 import { fetchSteelTableByOwner, fetchSupplierTables, persistSteelTable } from '../services/tableService';
 import type { PricingTable } from '../services/tableService';
-import type { TableRow } from '../types/table';
+import type { ScheduleType, TableRow } from '../types/table';
 
 export type { TableRow } from '../types/table';
 
@@ -20,15 +20,22 @@ type TableState = {
   description: string;
   rows: TableRow[];
   notes: string;
+  paymentTerms: string;
+  scheduleType: ScheduleType;
+  isActive: boolean;
 };
 
 export type SupplierTablePreview = {
   id: string;
   company: string;
+  location: string;
   route: string;
   updatedAt: string;
   notes: string;
+  paymentTerms?: string;
+  scheduleType?: ScheduleType;
   rows: TableRow[];
+  isActive: boolean;
 };
 
 type TableContextValue = {
@@ -37,6 +44,11 @@ type TableContextValue = {
   removeRow: (id: string) => void;
   updateRow: <K extends keyof TableRow>(id: string, key: K, value: TableRow[K]) => void;
   updateNotes: (value: string) => void;
+  updatePaymentTerms: (value: string) => void;
+  updateScheduleType: (value: ScheduleType) => void;
+  toggleActive: (value: boolean) => void;
+  saveTable: () => Promise<void>;
+  isDirty: boolean;
   supplierTables: SupplierTablePreview[];
   refreshSupplierTables: () => Promise<void>;
   loading: boolean;
@@ -49,53 +61,36 @@ const defaultRows: TableRow[] = [
   { id: 'row-4', densityMin: '233', densityMax: '500', pricePF: '1200', pricePJ: '1300', unit: 'tonelada' }
 ];
 
-const fallbackSupplierTables: SupplierTablePreview[] = [
-  {
-    id: 'fallback-vale',
-    company: 'Siderúrgica Vale Azul',
-    route: 'Logística Sul • Contrato trimestral',
-    updatedAt: 'Atualizado há 2h',
-    notes: 'Descontos progressivos por umidade acima de 6% aplicado ao peso líquido.',
-    rows: [
-      { id: 'fv-1', densityMin: '0', densityMax: '199,99', pricePF: '240', pricePJ: '260', unit: 'm3' },
-      { id: 'fv-2', densityMin: '200', densityMax: '219,99', pricePF: '270', pricePJ: '290', unit: 'm3' },
-      { id: 'fv-3', densityMin: '220', densityMax: '233', pricePF: '280', pricePJ: '300', unit: 'm3' }
-    ]
-  },
-  {
-    id: 'fallback-horizonte',
-    company: 'Companhia Horizonte',
-    route: 'Logística Sudeste • Contrato mensal',
-    updatedAt: 'Atualizado ontem',
-    notes: 'Pedidos acima de 800 t recebem adicional de R$ 12/t para frete incluso.',
-    rows: [
-      { id: 'fh-1', densityMin: '0', densityMax: '210', pricePF: '245', pricePJ: '268', unit: 'm3' },
-      { id: 'fh-2', densityMin: '211', densityMax: '235', pricePF: '285', pricePJ: '308', unit: 'm3' },
-      { id: 'fh-3', densityMin: '236', densityMax: '260', pricePF: '320', pricePJ: '344', unit: 'tonelada' }
-    ]
-  }
-];
-
 const defaultNotes =
   'UMIDADE (%) DESCONTO (R$ POR METRO)\nDe 6% até 10% Desconto excedente no peso\nDe 10,01% acima Desconto total de umidade';
 
 const TableContext = createContext<TableContextValue | undefined>(undefined);
 
+const fallbackUuid = () =>
+  'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, char => {
+    const rand = (Math.random() * 16) | 0;
+    const value = char === 'x' ? rand : (rand & 0x3) | 0x8;
+    return value.toString(16);
+  });
+
 const generateId = () =>
   typeof crypto !== 'undefined' && 'randomUUID' in crypto
     ? crypto.randomUUID()
-    : `row-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    : fallbackUuid();
 
 const generateTableId = () =>
   typeof crypto !== 'undefined' && 'randomUUID' in crypto
     ? crypto.randomUUID()
-    : `table-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    : fallbackUuid();
 
 const mapPricingTableToState = (pricingTable: PricingTable): TableState => ({
   id: pricingTable.id,
   title: pricingTable.title || 'Tabela de Preços',
   description: pricingTable.description || 'Defina as faixas de classificação e os preços correspondentes.',
-  notes: pricingTable.notes || defaultNotes,
+  notes: pricingTable.notes ?? defaultNotes,
+  paymentTerms: pricingTable.paymentTerms ?? '',
+  scheduleType: pricingTable.scheduleType ?? 'agendamento',
+  isActive: pricingTable.isActive ?? true,
   rows:
     pricingTable.rows.length > 0
       ? pricingTable.rows
@@ -104,11 +99,15 @@ const mapPricingTableToState = (pricingTable: PricingTable): TableState => ({
 
 const mapPricingTableToPreview = (pricingTable: PricingTable): SupplierTablePreview => ({
   id: pricingTable.id,
-  company: pricingTable.company ?? 'Siderúrgica parceira',
-  route: pricingTable.route ?? 'Logística não informada',
+  company: pricingTable.company ?? 'Empresa não informada',
+  location: pricingTable.location ?? 'Localização não informada',
+  route: pricingTable.company ?? '—',
   updatedAt: pricingTable.updatedAt ?? 'Atualizado recentemente',
   notes: pricingTable.notes,
-  rows: pricingTable.rows
+  paymentTerms: pricingTable.paymentTerms ?? undefined,
+  scheduleType: pricingTable.scheduleType ?? undefined,
+  rows: pricingTable.rows,
+  isActive: pricingTable.isActive ?? true
 });
 
 type Props = {
@@ -122,19 +121,21 @@ export const TableProvider: React.FC<Props> = ({ children }) => {
     title: 'Tabela de Preços',
     description: 'Defina as faixas de classificação e os preços correspondentes.',
     rows: defaultRows.map(row => ({ ...row })),
-    notes: defaultNotes
+    notes: defaultNotes,
+    paymentTerms: '',
+    scheduleType: 'agendamento',
+    isActive: true
   });
-  const [supplierTables, setSupplierTables] = useState<SupplierTablePreview[]>(fallbackSupplierTables);
+  const [supplierTables, setSupplierTables] = useState<SupplierTablePreview[]>([]);
   const [loading, setLoading] = useState(false);
+  const [isDirty, setIsDirty] = useState(false);
   const syncingRef = useRef(false);
 
   const refreshSupplierTables = useCallback(async () => {
     setLoading(true);
     try {
       const tables = await fetchSupplierTables();
-      if (tables.length > 0) {
-        setSupplierTables(tables.map(mapPricingTableToPreview));
-      }
+      setSupplierTables(tables.filter(table => table.isActive !== false).map(mapPricingTableToPreview));
     } finally {
       setLoading(false);
     }
@@ -148,19 +149,25 @@ export const TableProvider: React.FC<Props> = ({ children }) => {
     const loadSteelData = async () => {
       if (profile.type !== 'steel' || !profile.email) {
         setTable(prev => ({ ...prev, id: null }));
+        setIsDirty(false);
         return;
       }
       setLoading(true);
       const remoteTable = await fetchSteelTableByOwner(profile.email);
       if (remoteTable) {
         setTable(mapPricingTableToState(remoteTable));
+        setIsDirty(false);
       } else {
         setTable(prev => ({
           ...prev,
           id: null,
           rows: defaultRows.map(row => ({ ...row, id: generateId() })),
-          notes: defaultNotes
+          notes: defaultNotes,
+          paymentTerms: '',
+          scheduleType: 'agendamento',
+          isActive: true
         }));
+        setIsDirty(true);
       }
       setLoading(false);
     };
@@ -186,24 +193,45 @@ export const TableProvider: React.FC<Props> = ({ children }) => {
             title: next.title,
             description: next.description,
             notes: next.notes,
+            paymentTerms: next.paymentTerms,
+            scheduleType: next.scheduleType,
+            isActive: next.isActive,
             rows: next.rows,
             company: profile.company,
             route: profile.company ?? undefined,
+            location: profile.location ?? undefined,
             updatedAt: undefined
           },
           profile.company ?? null,
-          profile.company ?? null
+          profile.location ?? null
         );
-        if (persisted) {
-          setTable(mapPricingTableToState(persisted));
-          refreshSupplierTables();
+        if (!persisted) {
+          throw new Error('Não foi possível salvar a tabela no servidor.');
         }
+
+        const merged = {
+          ...persisted,
+          notes: persisted.notes ?? next.notes,
+          paymentTerms: persisted.paymentTerms ?? next.paymentTerms,
+          scheduleType: persisted.scheduleType ?? next.scheduleType
+        } as PricingTable;
+
+        setTable(mapPricingTableToState(merged));
+        setIsDirty(false);
+        void refreshSupplierTables();
       } finally {
         syncingRef.current = false;
       }
     },
     [profile, refreshSupplierTables]
   );
+
+  const saveCurrentTable = useCallback(async () => {
+    if (profile.type !== 'steel' || !profile.email) {
+      return;
+    }
+    await persistIfSteel(table);
+  }, [profile, table, persistIfSteel]);
 
   const value = useMemo<TableContextValue>(() => {
     const addRow = () => {
@@ -216,41 +244,60 @@ export const TableProvider: React.FC<Props> = ({ children }) => {
           pricePJ: '',
           unit: 'm3'
         };
-        const next = { ...prev, rows: [...prev.rows, newRow] };
-        void persistIfSteel(next);
-        return next;
+        return { ...prev, rows: [...prev.rows, newRow] };
       });
+      setIsDirty(true);
     };
 
     const removeRow = (id: string) => {
-      setTable(prev => {
-        const next = { ...prev, rows: prev.rows.filter(row => row.id !== id) };
-        void persistIfSteel(next);
-        return next;
-      });
+      setTable(prev => ({ ...prev, rows: prev.rows.filter(row => row.id !== id) }));
+      setIsDirty(true);
     };
 
     const updateRow: TableContextValue['updateRow'] = (id, key, value) => {
-      setTable(prev => {
-        const next = {
-          ...prev,
-          rows: prev.rows.map(row => (row.id === id ? { ...row, [key]: value } : row))
-        };
-        void persistIfSteel(next);
-        return next;
-      });
+      setTable(prev => ({
+        ...prev,
+        rows: prev.rows.map(row => (row.id === id ? { ...row, [key]: value } : row))
+      }));
+      setIsDirty(true);
     };
 
     const updateNotes = (notes: string) => {
-      setTable(prev => {
-        const next = { ...prev, notes };
-        void persistIfSteel(next);
-        return next;
-      });
+      setTable(prev => ({ ...prev, notes }));
+      setIsDirty(true);
     };
 
-    return { table, addRow, removeRow, updateRow, updateNotes, supplierTables, refreshSupplierTables, loading };
-  }, [table, supplierTables, refreshSupplierTables, persistIfSteel, loading]);
+    const updatePaymentTerms = (value: string) => {
+      setTable(prev => ({ ...prev, paymentTerms: value }));
+      setIsDirty(true);
+    };
+
+  const updateScheduleType = (value: ScheduleType) => {
+    setTable(prev => ({ ...prev, scheduleType: value }));
+    setIsDirty(true);
+  };
+
+  const toggleActive = (value: boolean) => {
+    setTable(prev => ({ ...prev, isActive: value }));
+    setIsDirty(true);
+  };
+
+    return {
+      table,
+      addRow,
+      removeRow,
+      updateRow,
+      updateNotes,
+      updatePaymentTerms,
+      updateScheduleType,
+      toggleActive,
+      saveTable: saveCurrentTable,
+      isDirty,
+      supplierTables,
+      refreshSupplierTables,
+      loading
+    };
+  }, [table, saveCurrentTable, isDirty, supplierTables, refreshSupplierTables, loading]);
 
   return <TableContext.Provider value={value}>{children}</TableContext.Provider>;
 };

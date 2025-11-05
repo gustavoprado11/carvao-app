@@ -40,11 +40,11 @@ export const SegmentedControl = <T extends string>({ value, options, onChange }:
 const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
-    backgroundColor: colors.glassSurface,
+    backgroundColor: colors.primaryMuted,
     borderRadius: spacing.xxl,
     padding: spacing.xs,
     borderWidth: 1,
-    borderColor: colors.glassBorder,
+    borderColor: colors.border,
     gap: spacing.xs
   },
   segment: {
@@ -54,10 +54,10 @@ const styles = StyleSheet.create({
     alignItems: 'center'
   },
   activeSegment: {
-    backgroundColor: 'rgba(255,255,255,0.16)',
-    shadowColor: '#0F172A',
+    backgroundColor: colors.surface,
+    shadowColor: 'rgba(15,23,42,0.2)',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
+    shadowOpacity: 1,
     shadowRadius: 8,
     elevation: 2
   },
@@ -67,7 +67,7 @@ const styles = StyleSheet.create({
     color: colors.textSecondary
   },
   activeLabel: {
-    color: colors.surface
+    color: colors.primary
   },
   pressed: {
     opacity: 0.8

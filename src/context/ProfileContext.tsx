@@ -5,6 +5,7 @@ type ProfileContextValue = {
   profile: UserProfile;
   updateProfile: (updates: Partial<UserProfile>) => Promise<void>;
   logout: () => void;
+  refreshProfile: () => Promise<UserProfile | null>;
 };
 
 const ProfileContext = createContext<ProfileContextValue | undefined>(undefined);
@@ -13,12 +14,13 @@ type Props = {
   profile: UserProfile;
   updateProfile: (updates: Partial<UserProfile>) => Promise<void>;
   logout: () => void;
+  refreshProfile: () => Promise<UserProfile | null>;
   children: React.ReactNode;
 };
 
-export const ProfileProvider: React.FC<Props> = ({ profile, updateProfile, logout, children }) => {
+export const ProfileProvider: React.FC<Props> = ({ profile, updateProfile, logout, refreshProfile, children }) => {
   return (
-    <ProfileContext.Provider value={{ profile, updateProfile, logout }}>
+    <ProfileContext.Provider value={{ profile, updateProfile, logout, refreshProfile }}>
       {children}
     </ProfileContext.Provider>
   );
@@ -34,5 +36,6 @@ export const useProfile = () => {
 
 export const profileLabels: Record<ProfileType, string> = {
   supplier: 'Fornecedor',
-  steel: 'Siderúrgica'
+  steel: 'Siderúrgica',
+  admin: 'Administrador'
 };

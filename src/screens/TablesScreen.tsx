@@ -3,30 +3,71 @@ import {
   ActionSheetIOS,
   ActivityIndicator,
   Alert,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  View
+  View,
+  Switch
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useNavigation, type NavigationProp } from '@react-navigation/native';
 import { useProfile } from '../context/ProfileContext';
 import { SupplierTablePreview, TableRow, useTable } from '../context/TableContext';
+import { PrimaryButton } from '../components/PrimaryButton';
+import { SegmentedControl } from '../components/SegmentedControl';
 import { colors, spacing } from '../theme';
+import type { MainTabParamList } from '../navigation/MainTabs';
+import { supabase } from '../lib/supabaseClient';
 
 const unitOptions = [
   { label: 'm³', value: 'm3' as const },
   { label: 'tonelada', value: 'tonelada' as const }
 ];
 
+const schedulingOptions = [
+  { label: 'Agendamento', value: 'agendamento' as const },
+  { label: 'Fila', value: 'fila' as const }
+];
+
 export const TablesScreen: React.FC = () => {
   const { profile } = useProfile();
   const isSteelProfile = profile.type === 'steel';
-  const { table, addRow, removeRow, updateRow, updateNotes, supplierTables, loading } = useTable();
+  const navigation = useNavigation<NavigationProp<MainTabParamList>>();
+  const {
+    table,
+    addRow,
+    removeRow,
+    updateRow,
+    updateNotes,
+    updatePaymentTerms,
+    updateScheduleType,
+    toggleActive,
+    saveTable,
+    isDirty,
+    supplierTables,
+    loading
+  } = useTable();
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [isSavingTable, setIsSavingTable] = useState(false);
+  const [emailConfirmed, setEmailConfirmed] = useState(true);
+  const [isCheckingConfirmation, setCheckingConfirmation] = useState(true);
+  const [firstSetupModalVisible, setFirstSetupModalVisible] = useState(false);
+  const [shouldAutoShowFirstPrompt, setShouldAutoShowFirstPrompt] = useState(true);
+
+  const isFirstPublish = isSteelProfile && !table.id;
+  const firstSetupSteps = [
+    'Defina todas as faixas de densidade e unidades aceitas.',
+    'Informe os preços para PF e PJ em cada faixa.',
+    'Descreva forma de pagamento e escolha se trabalha por agendamento ou fila.',
+    'Inclua observações importantes para os fornecedores.',
+    'Toque em “Salvar tabela” para publicar a tabela e liberá-la na aba Tabelas dos fornecedores.'
+  ];
 
   useEffect(() => {
     if (supplierTables.length === 0) {
@@ -36,10 +77,48 @@ export const TablesScreen: React.FC = () => {
       if (Object.keys(prev).length > 0) {
         return prev;
       }
-      const initialId = supplierTables[0].id;
-      return { [initialId]: true };
+      return {};
     });
   }, [supplierTables]);
+
+  useEffect(() => {
+    const fetchConfirmationStatus = async () => {
+      try {
+        setCheckingConfirmation(true);
+        const {
+          data: { user },
+          error
+        } = await supabase.auth.getUser();
+        if (error) {
+          console.warn('[Tables] getUser failed', error);
+        }
+        setEmailConfirmed(Boolean(user?.email_confirmed_at));
+      } catch (error) {
+        console.warn('[Tables] failed to load confirmation status', error);
+        setEmailConfirmed(true);
+      } finally {
+        setCheckingConfirmation(false);
+      }
+    };
+    fetchConfirmationStatus();
+  }, []);
+
+  useEffect(() => {
+    if (isFirstPublish && shouldAutoShowFirstPrompt) {
+      setFirstSetupModalVisible(true);
+    }
+    if (!isFirstPublish) {
+      setFirstSetupModalVisible(false);
+      setShouldAutoShowFirstPrompt(true);
+    }
+  }, [isFirstPublish, shouldAutoShowFirstPrompt]);
+
+  const handleDismissFirstPrompt = () => {
+    setFirstSetupModalVisible(false);
+    if (shouldAutoShowFirstPrompt) {
+      setShouldAutoShowFirstPrompt(false);
+    }
+  };
 
   const handleSelectUnit = (rowId: string) => {
     if (Platform.OS === 'ios') {
@@ -69,8 +148,31 @@ export const TablesScreen: React.FC = () => {
   const unitLabel = (value: typeof unitOptions[number]['value']) =>
     unitOptions.find(option => option.value === value)?.label ?? value;
 
+  const formatScheduleLabel = (value?: SupplierTablePreview['scheduleType']) => {
+    if (value === 'fila') {
+      return 'Fila';
+    }
+    if (value === 'agendamento') {
+      return 'Agendamento';
+    }
+    return 'Não informado';
+  };
+
   const toggleTable = (tableId: string) => {
     setExpanded(prev => ({ ...prev, [tableId]: !prev[tableId] }));
+  };
+
+  const handleSaveTable = async () => {
+    try {
+      setIsSavingTable(true);
+      await saveTable();
+      Alert.alert('Tabela salva', 'Suas condições foram atualizadas com sucesso.');
+    } catch (error) {
+      Alert.alert('Erro ao salvar tabela', 'Não foi possível salvar a tabela. Tente novamente em instantes.');
+      console.warn('[Tables] saveTable failed', error);
+    } finally {
+      setIsSavingTable(false);
+    }
   };
 
   const renderReadOnlyRow = (row: TableRow) => (
@@ -98,12 +200,63 @@ export const TablesScreen: React.FC = () => {
 
   const renderSteelView = () => (
     <>
+      {isFirstPublish ? (
+        <View style={styles.firstPublishCard}>
+          <Text style={styles.firstPublishTitle}>Publique sua tabela para fornecedores</Text>
+          <Text style={styles.firstPublishText}>
+            Complete todos os campos abaixo e toque em “Salvar tabela” para que os fornecedores visualizem automaticamente
+            suas condições.
+          </Text>
+          <TouchableOpacity style={styles.firstPublishHint} onPress={() => setFirstSetupModalVisible(true)}>
+            <Ionicons name="information-circle-outline" size={18} color={colors.primary} />
+            <Text style={styles.firstPublishHintText}>Ver passo a passo</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
       <View style={styles.header}>
         <Text style={styles.title}>{table.title}</Text>
         <Text style={styles.subtitle}>{table.description}</Text>
       </View>
 
+      <View style={styles.activationCard}>
+        <View style={styles.activationRow}>
+          <Text style={styles.activationLabel}>Tabela ativa para fornecedores</Text>
+          <Switch
+            value={table.isActive}
+            onValueChange={toggleActive}
+            trackColor={{ true: colors.primaryMuted, false: '#CBD5E1' }}
+            thumbColor={table.isActive ? colors.primary : '#FFFFFF'}
+          />
+        </View>
+        <Text style={styles.activationHint}>
+          Ao desativar, sua tabela deixa de aparecer para fornecedores na aba Tabelas.
+        </Text>
+      </View>
+
       <View style={styles.tableContainer}>
+        <View style={styles.metaSection}>
+          <View style={styles.metaField}>
+            <Text style={styles.fieldLabel}>Forma de pagamento</Text>
+            <TextInput
+              value={table.paymentTerms}
+              onChangeText={updatePaymentTerms}
+              placeholder="Ex: 1 dia útil"
+              placeholderTextColor={colors.textSecondary}
+              style={[styles.input, styles.metaInput]}
+            />
+          </View>
+          <View style={styles.metaField}>
+            <Text style={styles.fieldLabel}>Agendamento ou fila</Text>
+            <View style={styles.metaSegmentedWrapper}>
+              <SegmentedControl
+                value={table.scheduleType}
+                onChange={updateScheduleType}
+                options={schedulingOptions}
+              />
+            </View>
+          </View>
+        </View>
+
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Faixas de preço</Text>
           <TouchableOpacity style={styles.addButton} onPress={addRow}>
@@ -193,6 +346,13 @@ export const TablesScreen: React.FC = () => {
           onChangeText={updateNotes}
         />
       </View>
+
+      <PrimaryButton
+        label="Salvar tabela"
+        onPress={handleSaveTable}
+        disabled={!isDirty || isSavingTable}
+        loading={isSavingTable}
+      />
     </>
   );
 
@@ -205,20 +365,24 @@ export const TablesScreen: React.FC = () => {
         </Text>
       </View>
 
+      {!isCheckingConfirmation && !emailConfirmed ? (
+        <View style={styles.confirmationCard}>
+          <Ionicons name="mail-outline" size={22} color={colors.primary} />
+          <View style={styles.confirmationContent}>
+            <Text style={styles.confirmationTitle}>Confirme seu e-mail</Text>
+            <Text style={styles.confirmationText}>
+              Enviamos uma mensagem para {profile.email}. Acesse sua caixa de entrada e confirme o endereço para
+              liberar o acesso às tabelas de preço.
+            </Text>
+          </View>
+        </View>
+      ) : null}
+
       <View style={styles.cardGroup}>
         {loading ? (
           <View style={styles.loadingState}>
             <ActivityIndicator color={colors.primary} />
             <Text style={styles.loadingText}>Carregando tabelas...</Text>
-          </View>
-        ) : null}
-
-        {!loading && supplierTables.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyTitle}>Nenhuma tabela publicada</Text>
-            <Text style={styles.emptySubtitle}>
-              As siderúrgicas cadastradas ainda não compartilharam tabelas de preços. Tente novamente mais tarde.
-            </Text>
           </View>
         ) : null}
 
@@ -228,25 +392,39 @@ export const TablesScreen: React.FC = () => {
             <View key={item.id} style={styles.supplierCard}>
               <TouchableOpacity style={styles.supplierHeader} onPress={() => toggleTable(item.id)} activeOpacity={0.9}>
                 <View style={styles.supplierTitleBlock}>
-                  <Text style={styles.cardTitle}>{item.company}</Text>
-                  <Text style={styles.cardSubtitle}>{item.route}</Text>
-                </View>
-                <View style={styles.supplierMeta}>
-                  <Text style={styles.updatedText}>{item.updatedAt}</Text>
-                  <Ionicons
-                    name={isExpanded ? 'chevron-up' : 'chevron-down'}
-                    size={18}
-                    color={colors.textSecondary}
-                  />
+                  <Text style={styles.cardTitle} numberOfLines={1} ellipsizeMode="tail">{item.company}</Text>
+                  <Text style={styles.cardSubtitle} numberOfLines={1} ellipsizeMode="tail">{item.location}</Text>
+                  <View style={styles.supplierMeta}>
+                    <Text style={styles.updatedText}>{item.updatedAt}</Text>
+                    <Ionicons
+                      name={isExpanded ? 'chevron-up' : 'chevron-down'}
+                      size={18}
+                      color={colors.textSecondary}
+                    />
+                  </View>
                 </View>
               </TouchableOpacity>
               {isExpanded ? (
                 <View style={styles.supplierBody}>
+                  <View style={styles.metaInfoBox}>
+                    <View style={styles.metaInfoRow}>
+                      <Text style={styles.infoLabel}>Forma de pagamento</Text>
+                      <Text style={styles.infoValue}>{item.paymentTerms?.trim() || 'Não informado'}</Text>
+                    </View>
+                    <View style={styles.metaInfoRow}>
+                      <Text style={styles.infoLabel}>Agendamento ou fila</Text>
+                      <Text style={styles.infoValue}>{formatScheduleLabel(item.scheduleType)}</Text>
+                    </View>
+                  </View>
                   {item.rows.map(renderReadOnlyRow)}
                   <View style={styles.notesBox}>
                     <Text style={styles.sectionTitle}>Observações</Text>
                     <Text style={styles.notesText}>{item.notes}</Text>
                   </View>
+                  <PrimaryButton
+                    label="Conversar com esta siderúrgica"
+                    onPress={() => navigation.navigate('Conversas')}
+                  />
                 </View>
               ) : null}
             </View>
@@ -257,26 +435,122 @@ export const TablesScreen: React.FC = () => {
   );
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        {isSteelProfile ? renderSteelView() : renderSupplierView()}
-      </ScrollView>
-    </SafeAreaView>
+    <View style={styles.root}>
+      <LinearGradient
+        colors={[colors.gradientStart, colors.gradientEnd]}
+        style={StyleSheet.absoluteFillObject}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+      />
+      <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+          {isSteelProfile ? renderSteelView() : renderSupplierView()}
+        </ScrollView>
+      </SafeAreaView>
+      <Modal
+        visible={firstSetupModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={handleDismissFirstPrompt}
+      >
+        <View style={styles.firstModalBackdrop}>
+          <View style={styles.firstModalCard}>
+            <Text style={styles.firstModalTitle}>Como publicar sua tabela</Text>
+            <Text style={styles.firstModalSubtitle}>
+              Complete todos os campos e salve para liberar sua tabela automaticamente na visão dos fornecedores.
+            </Text>
+            {firstSetupSteps.map((step, index) => (
+              <View key={step} style={styles.firstModalStep}>
+                <View style={styles.firstModalBullet}>
+                  <Text style={styles.firstModalBulletText}>{index + 1}</Text>
+                </View>
+                <Text style={styles.firstModalStepText}>{step}</Text>
+              </View>
+            ))}
+            <PrimaryButton label="Vou preencher agora" onPress={handleDismissFirstPrompt} />
+            <TouchableOpacity style={styles.firstModalClose} onPress={handleDismissFirstPrompt}>
+              <Text style={styles.firstModalCloseText}>Fechar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+    backgroundColor: colors.gradientStart
+  },
   safeArea: {
     flex: 1,
-    backgroundColor: colors.background
+    backgroundColor: 'transparent'
   },
   content: {
     flexGrow: 1,
-    padding: spacing.lg,
-    gap: spacing.lg
+    padding: spacing.xxl,
+    gap: spacing.lg,
+    paddingBottom: spacing.xxxl
   },
   header: {
     gap: spacing.xs
+  },
+  firstPublishCard: {
+    backgroundColor: colors.surface,
+    borderRadius: spacing.lg,
+    padding: spacing.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    gap: spacing.sm,
+    shadowColor: 'rgba(15,23,42,0.1)',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 1,
+    shadowRadius: 20,
+    elevation: 2
+  },
+  firstPublishTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.textPrimary
+  },
+  firstPublishText: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    lineHeight: 20
+  },
+  firstPublishHint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs
+  },
+  firstPublishHintText: {
+    color: colors.primary,
+    fontWeight: '600'
+  },
+  confirmationCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+    backgroundColor: colors.primaryMuted,
+    borderRadius: spacing.lg,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.primary
+  },
+  confirmationContent: {
+    flex: 1,
+    gap: spacing.xs / 2
+  },
+  confirmationTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: colors.primary
+  },
+  confirmationText: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    lineHeight: 20
   },
   title: {
     fontSize: 26,
@@ -288,6 +562,28 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     lineHeight: 22
   },
+  activationCard: {
+    backgroundColor: colors.surface,
+    borderRadius: spacing.lg,
+    padding: spacing.lg,
+    gap: spacing.xs,
+    borderWidth: 1,
+    borderColor: colors.border
+  },
+  activationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between'
+  },
+  activationLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.textPrimary
+  },
+  activationHint: {
+    fontSize: 13,
+    color: colors.textSecondary
+  },
   tableContainer: {
     backgroundColor: colors.surface,
     borderRadius: spacing.lg,
@@ -295,6 +591,18 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     borderWidth: 1,
     borderColor: colors.border
+  },
+  metaSection: {
+    gap: spacing.md
+  },
+  metaField: {
+    gap: spacing.xs
+  },
+  metaInput: {
+    width: '100%'
+  },
+  metaSegmentedWrapper: {
+    alignSelf: 'stretch'
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -327,7 +635,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     padding: spacing.md,
-    backgroundColor: '#F8FAFC',
+    backgroundColor: colors.surface,
     gap: spacing.sm
   },
   rowHeader: {
@@ -413,6 +721,61 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     color: colors.textSecondary
   },
+  firstModalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(15,23,42,0.55)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: spacing.lg
+  },
+  firstModalCard: {
+    width: '100%',
+    backgroundColor: colors.surface,
+    borderRadius: spacing.lg,
+    padding: spacing.lg,
+    gap: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border
+  },
+  firstModalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: colors.textPrimary
+  },
+  firstModalSubtitle: {
+    fontSize: 15,
+    color: colors.textSecondary,
+    lineHeight: 21
+  },
+  firstModalStep: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm
+  },
+  firstModalBullet: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: colors.primaryMuted,
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  firstModalBulletText: {
+    fontWeight: '700',
+    color: colors.primary
+  },
+  firstModalStepText: {
+    flex: 1,
+    color: colors.textPrimary,
+    lineHeight: 20
+  },
+  firstModalClose: {
+    alignItems: 'center'
+  },
+  firstModalCloseText: {
+    color: colors.textSecondary,
+    fontWeight: '600'
+  },
   cardGroup: {
     gap: spacing.md
   },
@@ -422,38 +785,43 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.04,
-    shadowRadius: 10,
+    shadowColor: 'rgba(15,23,42,0.1)',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 1,
+    shadowRadius: 24,
     elevation: 2
   },
   supplierHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
-    backgroundColor: '#EFF4FF'
+    backgroundColor: colors.primaryMuted
   },
   supplierTitleBlock: {
     flex: 1,
-    paddingRight: spacing.md
+    paddingRight: spacing.md,
+    gap: spacing.xs / 2
   },
   cardTitle: {
     fontSize: 18,
-    fontWeight: '600',
+    fontWeight: '700',
     color: colors.textPrimary
   },
   cardSubtitle: {
     fontSize: 14,
-    color: colors.textSecondary,
-    marginTop: spacing.xs / 2
+    color: colors.textSecondary
+  },
+  cardMeta: {
+    fontSize: 13,
+    color: colors.textSecondary
   },
   supplierMeta: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.xs
+    gap: spacing.xs,
+    marginTop: spacing.xs / 2
   },
   updatedText: {
     fontSize: 12,
@@ -465,17 +833,42 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     gap: spacing.md
   },
+  metaInfoBox: {
+    borderRadius: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+    gap: spacing.sm,
+    backgroundColor: colors.surface
+  },
+  metaInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between'
+  },
+  infoLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6
+  },
+  infoValue: {
+    fontSize: 15,
+    color: colors.textPrimary,
+    fontWeight: '600'
+  },
   rowCardReadonly: {
     borderRadius: spacing.md,
     borderWidth: 1,
     borderColor: colors.border,
     padding: spacing.md,
     gap: spacing.sm,
-    backgroundColor: '#F8FAFC'
+    backgroundColor: colors.surface
   },
   notesBox: {
     borderRadius: spacing.md,
-    backgroundColor: '#F1F5F9',
+    backgroundColor: colors.primaryMuted,
     padding: spacing.md,
     gap: spacing.xs
   },

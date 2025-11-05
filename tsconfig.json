@@ -18,7 +18,8 @@
   },
   "exclude": [
     "node_modules",
-    "**/__tests__/*"
+    "**/__tests__/*",
+    "supabase/functions"
   ],
   "extends": "expo/tsconfig.base"
 }

@@ -2,10 +2,11 @@
   "expo": {
     "name": "Carvão Connect",
     "slug": "carvao-connect",
+    "scheme": "carvaoconnect",
     "version": "0.1.0",
     "sdkVersion": "54.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/icon-android.png",
     "userInterfaceStyle": "light",
     "splash": {
       "image": "./assets/splash.png",
@@ -16,19 +17,39 @@
       "**/*"
     ],
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.gustavocprado.carvaoconnect",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSUserNotificationUsageDescription": "Usamos notificações para avisar sobre novas mensagens e atualizações das siderúrgicas."
+      }
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "./assets/icon-android.png",
         "backgroundColor": "#ffffff"
-      }
+      },
+      "package": "com.gustavocprado.carvaoconnect"
     },
     "web": {
       "bundler": "metro"
     },
     "plugins": [
-      "expo-font"
-    ]
+      "expo-font",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon-android.png",
+          "color": "#1E63F5",
+          "sounds": []
+        }
+      ]
+    ],
+    "extra": {
+      "adminSignupCode": "admin-test-123",
+      "eas": {
+        "projectId": "96c59c26-d8f7-4bd4-935a-5506acc910d1"
+      }
+    }
   }
 }

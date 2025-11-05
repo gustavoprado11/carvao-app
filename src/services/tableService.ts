@@ -1,14 +1,18 @@
 import { supabase } from '../lib/supabaseClient';
-import { TableRow } from '../types/table';
+import { ScheduleType, TableRow } from '../types/table';
 
 type PricingTableRecord = {
   id: string;
   owner_email?: string | null;
   company?: string | null;
   route?: string | null;
+  location?: string | null;
   title: string;
   description: string;
   notes?: string | null;
+  payment_terms?: string | null;
+  schedule_type?: string | null;
+  is_active?: boolean | null;
   updated_at?: string;
 };
 
@@ -22,19 +26,50 @@ type PricingRowRecord = {
   unit?: string | null;
 };
 
+type ProfileLookupRecord = {
+  email: string;
+  type: string;
+  company?: string | null;
+  location?: string | null;
+};
+
 export type PricingTable = {
   id: string;
   company?: string;
   route?: string;
+  location?: string;
   updatedAt?: string;
   title: string;
   description: string;
   notes: string;
+  paymentTerms?: string;
+  scheduleType?: ScheduleType;
+  isActive?: boolean;
   rows: TableRow[];
 };
 
 const TABLES_TABLE = 'pricing_tables';
 const ROWS_TABLE = 'pricing_rows';
+
+const uuidPattern = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/;
+
+const generateUuid = () => {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, char => {
+    const rand = Math.random() * 16 | 0;
+    const value = char === 'x' ? rand : (rand & 0x3) | 0x8;
+    return value.toString(16);
+  });
+};
+
+const normalizeRowId = (id?: string | null) => {
+  if (id && uuidPattern.test(id)) {
+    return id;
+  }
+  return generateUuid();
+};
 
 const mapRowRecord = (record: PricingRowRecord): TableRow => ({
   id: record.id,
@@ -49,17 +84,21 @@ const mapTableRecord = (record: PricingTableRecord, rows: PricingRowRecord[]): P
   id: record.id,
   company: record.company ?? undefined,
   route: record.route ?? undefined,
+  location: record.location ?? undefined,
   updatedAt: record.updated_at ?? undefined,
   title: record.title,
   description: record.description,
   notes: record.notes ?? '',
+  paymentTerms: record.payment_terms ?? undefined,
+  scheduleType: (record.schedule_type as ScheduleType | null) ?? undefined,
+  isActive: record.is_active ?? true,
   rows: rows.map(mapRowRecord)
 });
 
 export const fetchSteelTableByOwner = async (ownerEmail: string): Promise<PricingTable | null> => {
   const { data: tableRecord, error } = await supabase
     .from(TABLES_TABLE)
-    .select('id, owner_email, company, route, title, description, notes, updated_at')
+    .select('id, owner_email, company, route, location, title, description, notes, payment_terms, schedule_type, is_active, updated_at')
     .eq('owner_email', ownerEmail.toLowerCase())
     .maybeSingle();
 
@@ -95,31 +134,43 @@ export const persistSteelTable = async (
   company?: string | null,
   route?: string | null
 ): Promise<PricingTable | null> => {
+  const normalizedTableId = table.id && uuidPattern.test(table.id) ? table.id : undefined;
+
   const tablePayload = {
-    id: table.id,
+    id: normalizedTableId,
     owner_email: ownerEmail.toLowerCase(),
     company: company ?? null,
     route: route ?? null,
+    location: table.location ?? null,
     title: table.title,
     description: table.description,
-    notes: table.notes
+    notes: table.notes,
+    payment_terms: table.paymentTerms ?? null,
+    schedule_type: table.scheduleType ?? null,
+    is_active: table.isActive ?? true,
+    updated_at: new Date().toISOString()
   };
 
   const { data: upsertedTable, error } = await supabase
     .from(TABLES_TABLE)
-    .upsert(tablePayload, { onConflict: 'owner_email' })
-    .select('id, owner_email, company, route, title, description, notes, updated_at')
+    .upsert(tablePayload, { onConflict: 'id' })
+    .select('id, owner_email, company, route, location, title, description, notes, payment_terms, schedule_type, is_active, updated_at')
     .single();
 
   if (error || !upsertedTable) {
     console.warn('[Supabase] persistSteelTable failed', error);
-    return null;
+    throw error ?? new Error('Falha ao salvar tabela de preços.');
   }
 
   const resolvedTableRecord = upsertedTable as PricingTableRecord;
   const resolvedTableId = resolvedTableRecord.id;
 
-  const rowsPayload: PricingRowRecord[] = table.rows.map(row => ({
+  const normalizedRows = table.rows.map(row => ({
+    ...row,
+    id: normalizeRowId(row.id)
+  }));
+
+  const rowsPayload: PricingRowRecord[] = normalizedRows.map(row => ({
     id: row.id,
     table_id: resolvedTableId,
     density_min: row.densityMin,
@@ -134,6 +185,7 @@ export const persistSteelTable = async (
 
     if (rowsError) {
       console.warn('[Supabase] persistSteelTable rows upsert failed', rowsError);
+      throw rowsError;
     }
   }
 
@@ -152,6 +204,7 @@ export const persistSteelTable = async (
       const { error: deleteError } = await supabase.from(ROWS_TABLE).delete().in('id', idsToDelete);
       if (deleteError) {
         console.warn('[Supabase] persistSteelTable delete rows failed', deleteError);
+        throw deleteError;
       }
     }
   }
@@ -166,7 +219,17 @@ export const persistSteelTable = async (
     unit: row.unit ?? null
   }));
 
-  return mapTableRecord(resolvedTableRecord, sanitizedRows);
+  const result = mapTableRecord(resolvedTableRecord, sanitizedRows);
+  const normalizedRowsForState = normalizedRows.map(row => ({
+    id: row.id,
+    densityMin: row.densityMin ?? '',
+    densityMax: row.densityMax ?? '',
+    pricePF: row.pricePF ?? '',
+    pricePJ: row.pricePJ ?? '',
+    unit: row.unit ?? 'm3'
+  }));
+
+  return { ...result, rows: normalizedRowsForState };
 };
 
 const formatUpdatedAt = (isoDate?: string) => {
@@ -187,10 +250,38 @@ const formatUpdatedAt = (isoDate?: string) => {
   return `Atualizado em ${updatedDate.toLocaleDateString('pt-BR')}`;
 };
 
+type SteelMetadata = {
+  company?: string | null;
+  location?: string | null;
+};
+
+export const syncSteelTableMetadata = async (ownerEmail: string, metadata: SteelMetadata): Promise<void> => {
+  const normalizedEmail = ownerEmail.toLowerCase();
+  const updatePayload: Record<string, string | null> = {};
+
+  if ('company' in metadata) {
+    updatePayload.company = metadata.company?.trim() ?? null;
+  }
+
+  if ('location' in metadata) {
+    updatePayload.location = metadata.location?.trim() ?? null;
+  }
+
+  if (Object.keys(updatePayload).length === 0) {
+    return;
+  }
+
+  const { error } = await supabase.from(TABLES_TABLE).update(updatePayload).eq('owner_email', normalizedEmail);
+
+  if (error) {
+    console.warn('[Supabase] syncSteelTableMetadata failed', error);
+  }
+};
+
 export const fetchSupplierTables = async (): Promise<PricingTable[]> => {
   const { data: tableRecords, error } = await supabase
     .from(TABLES_TABLE)
-    .select('id, company, route, title, description, notes, updated_at')
+    .select('id, owner_email, company, route, location, title, description, notes, payment_terms, schedule_type, is_active, updated_at')
     .order('updated_at', { ascending: false });
 
   if (error || !tableRecords) {
@@ -205,6 +296,39 @@ export const fetchSupplierTables = async (): Promise<PricingTable[]> => {
     return [];
   }
 
+  const ownerEmails = Array.from(
+    new Set(
+      resolvedTableRecords
+        .map(record => record.owner_email?.toLowerCase() ?? null)
+        .filter((value): value is string => !!value)
+    )
+  );
+
+  if (ownerEmails.length === 0) {
+    return [];
+  }
+
+  let profileLookupFailed = false;
+  const steelProfiles = new Map<string, ProfileLookupRecord>();
+
+  const { data: profileRecords, error: profileError } = await supabase
+    .from('profiles')
+    .select('email, type, company, location')
+    .in('email', ownerEmails);
+
+  if (ownerEmails.length > 0) {
+    if (profileError) {
+      profileLookupFailed = true;
+      console.warn('[Supabase] fetchSupplierTables profile lookup failed', profileError);
+    } else if (profileRecords) {
+      (profileRecords as ProfileLookupRecord[]).forEach(profile => {
+        if (profile.type === 'steel') {
+          steelProfiles.set(profile.email.toLowerCase(), profile);
+        }
+      });
+    }
+  }
+
   const { data: rowRecords, error: rowsError } = await supabase
     .from(ROWS_TABLE)
     .select('id, table_id, density_min, density_max, price_pf, price_pj, unit')
@@ -212,23 +336,49 @@ export const fetchSupplierTables = async (): Promise<PricingTable[]> => {
 
   if (rowsError) {
     console.warn('[Supabase] fetchSupplierTables rows failed', rowsError);
-    return resolvedTableRecords.map(record => ({
-      ...mapTableRecord(record, []),
-      updatedAt: formatUpdatedAt(record.updated_at)
-    }));
   }
 
   const rowsByTable = new Map<string, PricingRowRecord[]>();
-  const resolvedRows = (rowRecords ?? []) as PricingRowRecord[];
-  resolvedRows.forEach(row => {
-    const group = rowsByTable.get(row.table_id) ?? [];
-    group.push(row);
-    rowsByTable.set(row.table_id, group);
-  });
+  if (!rowsError && rowRecords) {
+    (rowRecords as PricingRowRecord[]).forEach(row => {
+      const group = rowsByTable.get(row.table_id) ?? [];
+      group.push(row);
+      rowsByTable.set(row.table_id, group);
+    });
+  }
 
-  return resolvedTableRecords.map(record => {
-    const rowsForTable = rowsByTable.get(record.id) ?? [];
-    const mapped = mapTableRecord(record, rowsForTable);
-    return { ...mapped, updatedAt: formatUpdatedAt(record.updated_at) };
-  });
+  return resolvedTableRecords
+    .filter(record => {
+      if (record.is_active === false) {
+        return false;
+      }
+      const ownerEmail = record.owner_email?.toLowerCase();
+      if (!ownerEmail) {
+        return false;
+      }
+      if (profileLookupFailed) {
+        return true;
+      }
+      if (steelProfiles.size === 0) {
+        return true;
+      }
+      return steelProfiles.has(ownerEmail);
+    })
+    .map(record => {
+      const ownerEmail = record.owner_email?.toLowerCase() ?? '';
+      const profile = steelProfiles.get(ownerEmail);
+      const rowsForTable = rowsByTable.get(record.id) ?? [];
+      const mapped = mapTableRecord(record, rowsError ? [] : rowsForTable);
+      const companyName = profile?.company ?? mapped.company ?? 'Empresa não informada';
+      const location = profile?.location ?? mapped.location ?? null;
+      const routeInfo = mapped.route ?? '';
+      return {
+        ...mapped,
+        company: companyName,
+        location: location ?? undefined,
+        route: routeInfo,
+        updatedAt: formatUpdatedAt(record.updated_at),
+        isActive: mapped.isActive ?? true
+      };
+    });
 };

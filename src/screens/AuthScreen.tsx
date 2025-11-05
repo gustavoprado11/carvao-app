@@ -181,7 +181,7 @@ export const AuthScreen: React.FC<Props> = ({ onAuthComplete }) => {
             <View style={styles.hero}>
               <View style={styles.logoBadge}>
                 <Image
-                  source={require('../../assets/logo.png')}
+                  source={require('../../assets/icon-original.png')}
                   style={styles.heroLogo}
                   resizeMode="contain"
                 />
@@ -396,16 +396,16 @@ const styles = StyleSheet.create({
     width: 96,
     height: 96,
     borderRadius: 32,
-    backgroundColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: colors.primaryMuted,
     borderWidth: 1,
-    borderColor: colors.glassBorder,
+    borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: spacing.sm
   },
   title: {
     textAlign: 'center',
-    color: '#F8FAFC'
+    color: colors.textPrimary
   },
   subtitle: {
     textAlign: 'center',
@@ -413,19 +413,19 @@ const styles = StyleSheet.create({
     maxWidth: 320
   },
   card: {
-    backgroundColor: colors.glassSurface,
+    backgroundColor: colors.surface,
     borderRadius: spacing.xxl,
     padding: spacing.xxl,
     gap: spacing.lg,
     width: '100%',
     maxWidth: 480,
     borderWidth: 1,
-    borderColor: colors.glassBorder,
-    shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: 24 },
-    shadowOpacity: 0.35,
-    shadowRadius: 48,
-    elevation: 8
+    borderColor: colors.border,
+    shadowColor: 'rgba(15,23,42,0.12)',
+    shadowOffset: { width: 0, height: 16 },
+    shadowOpacity: 1,
+    shadowRadius: 32,
+    elevation: 6
   },
   segmentedWrapper: {
     width: '100%'
@@ -438,12 +438,12 @@ const styles = StyleSheet.create({
   },
   adminToggleText: {
     fontSize: 13,
-    color: '#89B4FF',
+    color: colors.primary,
     textDecorationLine: 'underline'
   },
   adminBadge: {
     alignSelf: 'flex-start',
-    backgroundColor: 'rgba(37,99,235,0.12)',
+    backgroundColor: colors.primaryMuted,
     borderRadius: spacing.md,
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs / 1.5
@@ -451,12 +451,12 @@ const styles = StyleSheet.create({
   adminBadgeLabel: {
     fontSize: 12,
     fontWeight: '600',
-    color: colors.surface
+    color: colors.primary
   },
   sectionLabel: {
     fontSize: 15,
     fontWeight: '600',
-    color: '#CBD5F5',
+    color: colors.textSecondary,
     letterSpacing: 0.4
   },
   formArea: {
@@ -464,10 +464,10 @@ const styles = StyleSheet.create({
   },
   helperText: {
     textAlign: 'center',
-    color: '#E2E8F0'
+    color: colors.textSecondary
   },
   helperHighlight: {
-    color: colors.primaryMuted,
+    color: colors.primary,
     fontWeight: '600'
   },
   helperRow: {
@@ -476,7 +476,7 @@ const styles = StyleSheet.create({
   },
   switchMode: {
     textAlign: 'center',
-    color: colors.surface,
+    color: colors.textPrimary,
     fontWeight: '500'
   },
   resetBackdrop: {
@@ -486,17 +486,17 @@ const styles = StyleSheet.create({
     padding: spacing.lg
   },
   resetCard: {
-    backgroundColor: colors.glassSurface,
+    backgroundColor: colors.surface,
     borderRadius: spacing.xl,
     padding: spacing.lg,
     gap: spacing.sm,
     borderWidth: 1,
-    borderColor: colors.glassBorder
+    borderColor: colors.border
   },
   resetTitle: {
     fontSize: 18,
     fontWeight: '700',
-    color: colors.surface
+    color: colors.textPrimary
   },
   resetSubtitle: {
     fontSize: 14,
@@ -504,7 +504,7 @@ const styles = StyleSheet.create({
   },
   resetFeedback: {
     fontSize: 13,
-    color: colors.primaryMuted
+    color: colors.primary
   },
   resetActions: {
     flexDirection: 'row',
