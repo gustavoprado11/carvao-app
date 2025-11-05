@@ -40,23 +40,26 @@ export const SegmentedControl = <T extends string>({ value, options, onChange }:
 const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
-    backgroundColor: colors.primaryMuted,
-    borderRadius: spacing.lg,
-    padding: spacing.xs
+    backgroundColor: colors.glassSurface,
+    borderRadius: spacing.xxl,
+    padding: spacing.xs,
+    borderWidth: 1,
+    borderColor: colors.glassBorder,
+    gap: spacing.xs
   },
   segment: {
     flex: 1,
-    borderRadius: spacing.lg,
+    borderRadius: spacing.xxl,
     paddingVertical: spacing.sm,
     alignItems: 'center'
   },
   activeSegment: {
-    backgroundColor: colors.surface,
-    shadowColor: '#000',
+    backgroundColor: 'rgba(255,255,255,0.16)',
+    shadowColor: '#0F172A',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.05,
+    shadowOpacity: 0.2,
     shadowRadius: 8,
-    elevation: 1
+    elevation: 2
   },
   label: {
     fontSize: 16,
@@ -64,7 +67,7 @@ const styles = StyleSheet.create({
     color: colors.textSecondary
   },
   activeLabel: {
-    color: colors.textPrimary
+    color: colors.surface
   },
   pressed: {
     opacity: 0.8
