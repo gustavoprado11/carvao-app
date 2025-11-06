@@ -13,6 +13,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import type { NavigationProp } from '@react-navigation/native';
+import { Ionicons } from '@expo/vector-icons';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useProfile } from '../context/ProfileContext';
 import { PrimaryButton } from '../components/PrimaryButton';
@@ -24,6 +26,8 @@ import type { ConversationPreview } from '../types/conversation';
 import type { UserProfile } from '../types/profile';
 import type { ConversationsStackParamList } from '../navigation/ConversationsStack';
 import { useConversationRead } from '../context/ConversationReadContext';
+import { useSubscription } from '../context/SubscriptionContext';
+import type { MainTabParamList } from '../navigation/MainTabs';
 
 const formatTimestamp = (value: string) => {
   const timestamp = new Date(value);
@@ -114,6 +118,7 @@ export const ConversationsScreen: React.FC = () => {
   const navigation = useNavigation<NativeStackNavigationProp<ConversationsStackParamList>>();
   const { profile } = useProfile();
   const { isConversationUnread, recordConversationsSnapshot } = useConversationRead();
+  const { activeReceipt } = useSubscription();
   const [conversations, setConversations] = useState<ConversationPreview[]>([]);
   const [isLoadingList, setIsLoadingList] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -125,6 +130,8 @@ export const ConversationsScreen: React.FC = () => {
   const [isStartingConversation, setIsStartingConversation] = useState(false);
 
   const isSupplier = profile.type === 'supplier';
+  const isSubscriptionActive = Boolean(activeReceipt);
+  const shouldShowSubscriptionGate = isSupplier && !isSubscriptionActive;
 
   const loadConversations = useCallback(async (options?: { silent?: boolean }) => {
     const silent = options?.silent ?? false;
@@ -356,6 +363,42 @@ export const ConversationsScreen: React.FC = () => {
     return steelPartners;
   }, [isSupplier, steelPartners]);
 
+  const handleNavigateToPlans = () => {
+    const parentNavigator = navigation.getParent<NavigationProp<MainTabParamList>>();
+    parentNavigator?.navigate('Menu');
+  };
+
+  if (shouldShowSubscriptionGate) {
+    return (
+      <View style={styles.root}>
+        <LinearGradient
+          colors={[colors.gradientStart, colors.gradientEnd]}
+          style={StyleSheet.absoluteFillObject}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+        />
+        <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+          <View style={styles.subscriptionGate}>
+            <View style={styles.subscriptionGateCard}>
+              <View style={styles.subscriptionGateIcon}>
+                <Ionicons name="chatbubbles-outline" size={32} color={colors.primary} />
+              </View>
+              <Text style={styles.subscriptionGateTitle}>Assine para conversar com as siderúrgicas</Text>
+              <Text style={styles.subscriptionGateText}>
+                Contrate o Carvão Connect Pro para liberar o envio de mensagens e receber atualizações das siderúrgicas
+                em tempo real.
+              </Text>
+              <PrimaryButton label="Ver planos" onPress={handleNavigateToPlans} />
+              <TouchableOpacity onPress={handleNavigateToPlans} activeOpacity={0.7}>
+                <Text style={styles.subscriptionGateLink}>Ir para o Menu</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </SafeAreaView>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.root}>
       <LinearGradient
@@ -490,6 +533,52 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.xxxl,
     paddingTop: spacing.xl,
     gap: spacing.lg
+  },
+  subscriptionGate: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: spacing.xxl
+  },
+  subscriptionGateCard: {
+    width: '100%',
+    backgroundColor: colors.surface,
+    borderRadius: spacing.xxl,
+    padding: spacing.xl,
+    gap: spacing.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    shadowColor: 'rgba(15,23,42,0.12)',
+    shadowOffset: { width: 0, height: 18 },
+    shadowOpacity: 1,
+    shadowRadius: 28,
+    elevation: 6
+  },
+  subscriptionGateIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: colors.primaryMuted,
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'flex-start'
+  },
+  subscriptionGateTitle: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: colors.textPrimary
+  },
+  subscriptionGateText: {
+    fontSize: 16,
+    lineHeight: 22,
+    color: colors.textSecondary
+  },
+  subscriptionGateLink: {
+    marginTop: spacing.sm,
+    fontSize: 15,
+    color: colors.primary,
+    fontWeight: '600',
+    textAlign: 'center'
   },
   header: {
     gap: spacing.sm

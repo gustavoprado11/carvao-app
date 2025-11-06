@@ -21,6 +21,7 @@ import { useProfile } from '../context/ProfileContext';
 import { SupplierTablePreview, TableRow, useTable } from '../context/TableContext';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { SegmentedControl } from '../components/SegmentedControl';
+import { useSubscription } from '../context/SubscriptionContext';
 import { colors, spacing } from '../theme';
 import type { MainTabParamList } from '../navigation/MainTabs';
 import { supabase } from '../lib/supabaseClient';
@@ -38,6 +39,7 @@ const schedulingOptions = [
 export const TablesScreen: React.FC = () => {
   const { profile } = useProfile();
   const isSteelProfile = profile.type === 'steel';
+  const isSupplierProfile = profile.type === 'supplier';
   const navigation = useNavigation<NavigationProp<MainTabParamList>>();
   const {
     table,
@@ -53,12 +55,15 @@ export const TablesScreen: React.FC = () => {
     supplierTables,
     loading
   } = useTable();
+  const { activeReceipt } = useSubscription();
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [isSavingTable, setIsSavingTable] = useState(false);
   const [emailConfirmed, setEmailConfirmed] = useState(true);
   const [isCheckingConfirmation, setCheckingConfirmation] = useState(true);
   const [firstSetupModalVisible, setFirstSetupModalVisible] = useState(false);
   const [shouldAutoShowFirstPrompt, setShouldAutoShowFirstPrompt] = useState(true);
+  const isSubscriptionActive = Boolean(activeReceipt);
+  const shouldShowSubscriptionGate = isSupplierProfile && !isSubscriptionActive;
 
   const isFirstPublish = isSteelProfile && !table.id;
   const firstSetupSteps = [
@@ -160,6 +165,10 @@ export const TablesScreen: React.FC = () => {
 
   const toggleTable = (tableId: string) => {
     setExpanded(prev => ({ ...prev, [tableId]: !prev[tableId] }));
+  };
+
+  const handleNavigateToPlans = () => {
+    navigation.navigate('Menu');
   };
 
   const handleSaveTable = async () => {
@@ -434,6 +443,37 @@ export const TablesScreen: React.FC = () => {
     </>
   );
 
+  if (shouldShowSubscriptionGate) {
+    return (
+      <View style={styles.root}>
+        <LinearGradient
+          colors={[colors.gradientStart, colors.gradientEnd]}
+          style={StyleSheet.absoluteFillObject}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+        />
+        <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+          <View style={styles.subscriptionGate}>
+            <View style={styles.subscriptionGateCard}>
+              <View style={styles.subscriptionGateIcon}>
+                <Ionicons name="lock-closed-outline" size={32} color={colors.primary} />
+              </View>
+              <Text style={styles.subscriptionGateTitle}>Assine para desbloquear as tabelas</Text>
+              <Text style={styles.subscriptionGateText}>
+                Contrate o Carvão Connect Pro e tenha acesso imediato às tabelas das siderúrgicas parceiras e às
+                conversas diretas com cada equipe comercial.
+              </Text>
+              <PrimaryButton label="Ver planos" onPress={handleNavigateToPlans} />
+              <TouchableOpacity onPress={handleNavigateToPlans} activeOpacity={0.7}>
+                <Text style={styles.subscriptionGateLink}>Ir para o Menu</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </SafeAreaView>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.root}>
       <LinearGradient
@@ -492,6 +532,52 @@ const styles = StyleSheet.create({
     padding: spacing.xxl,
     gap: spacing.lg,
     paddingBottom: spacing.xxxl
+  },
+  subscriptionGate: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: spacing.xxl
+  },
+  subscriptionGateCard: {
+    width: '100%',
+    backgroundColor: colors.surface,
+    borderRadius: spacing.xxl,
+    padding: spacing.xl,
+    gap: spacing.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    shadowColor: 'rgba(15,23,42,0.12)',
+    shadowOffset: { width: 0, height: 18 },
+    shadowOpacity: 1,
+    shadowRadius: 28,
+    elevation: 6
+  },
+  subscriptionGateIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: colors.primaryMuted,
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'flex-start'
+  },
+  subscriptionGateTitle: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: colors.textPrimary
+  },
+  subscriptionGateText: {
+    fontSize: 16,
+    lineHeight: 22,
+    color: colors.textSecondary
+  },
+  subscriptionGateLink: {
+    marginTop: spacing.sm,
+    fontSize: 15,
+    color: colors.primary,
+    fontWeight: '600',
+    textAlign: 'center'
   },
   header: {
     gap: spacing.xs
