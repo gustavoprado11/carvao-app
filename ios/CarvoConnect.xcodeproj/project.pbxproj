@@ -347,7 +347,7 @@
 				CODE_SIGN_ENTITLEMENTS = CarvoConnect/CarvoConnect.entitlements;
 				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 21;
+				CURRENT_PROJECT_VERSION = 23;
 				DEVELOPMENT_TEAM = 3D5M22J52M;
 				ENABLE_BITCODE = NO;
 				GCC_PREPROCESSOR_DEFINITIONS = (
@@ -387,7 +387,7 @@
 				CODE_SIGN_ENTITLEMENTS = CarvoConnect/CarvoConnect.entitlements;
 				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 21;
+				CURRENT_PROJECT_VERSION = 23;
 				DEVELOPMENT_TEAM = 3D5M22J52M;
 				INFOPLIST_FILE = CarvoConnect/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;

@@ -36,7 +36,7 @@ react {
 
     /* Bundling */
     //   A list containing the node command and its flags. Default is just 'node'.
-    // nodeExecutableAndArgs = ["node"]
+    nodeExecutableAndArgs = [new File(rootDir, "node").absolutePath]
 
     //
     //   The path to the CLI configuration file. Default is empty.
@@ -92,8 +92,8 @@ android {
         applicationId 'com.gustavocprado.carvaoconnect'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "0.1.0"
+        versionCode 3
+        versionName "0.1.2"
 
         missingDimensionStrategy 'store', 'play'
 

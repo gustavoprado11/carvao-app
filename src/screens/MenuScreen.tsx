@@ -12,7 +12,7 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation, type NavigationProp } from '@react-navigation/native';
@@ -72,6 +72,7 @@ export const MenuScreen: React.FC = () => {
   const [locationStatus, setLocationStatus] = useState<'unknown' | 'granted' | 'denied'>('unknown');
   const [locationLoading, setLocationLoading] = useState(false);
   const [notificationLoading, setNotificationLoading] = useState(false);
+  const insets = useSafeAreaInsets();
   const [form, setForm] = useState<ProfileFormState>({
     email: profile.email,
     company: profile.company ?? '',
@@ -556,10 +557,7 @@ export const MenuScreen: React.FC = () => {
                     ) : subscriptionPlanOptions.length > 0 ? (
                       subscriptionPlanOptions.map(({ plan, product }) => (
                         <View key={plan.productId} style={styles.subscriptionOption}>
-                          <View style={styles.subscriptionOptionHeader}>
-                            <Text style={styles.subscriptionOptionTitle}>{plan.title}</Text>
-                            <Text style={styles.subscriptionTrialTag}>{plan.trialDescription}</Text>
-                          </View>
+                          <Text style={styles.subscriptionOptionTitle}>{plan.title}</Text>
                           <Text style={styles.subscriptionPrice}>{product.priceString ?? product.price}</Text>
                           <Text style={styles.subscriptionEquivalent}>{plan.equivalentPrice}</Text>
                           <Text style={styles.subscriptionOptionDescription}>{plan.description}</Text>
@@ -597,7 +595,7 @@ export const MenuScreen: React.FC = () => {
                       <Text style={styles.subscriptionLink} onPress={() => openExternalLink(SUBSCRIPTION_PRIVACY_LINK)}>
                         Política de privacidade
                       </Text>
-                      . A cobrança é renovada automaticamente após os 7 dias grátis e você pode cancelar quando quiser nas
+                      . A cobrança é renovada automaticamente ao final de cada período e você pode cancelar quando quiser nas
                       configurações da loja.
                     </Text>
                   </>
@@ -647,7 +645,12 @@ export const MenuScreen: React.FC = () => {
         onRequestClose={closeSettings}
       >
         <View style={styles.settingsBackdrop}>
-          <View style={styles.settingsCard}>
+          <View
+            style={[
+              styles.settingsCard,
+              { paddingBottom: spacing.lg + Math.max(insets.bottom, spacing.md) }
+            ]}
+          >
             <View style={styles.settingsHeader}>
               <Text style={styles.settingsTitle}>Configurações</Text>
               <TouchableOpacity onPress={closeSettings}>
@@ -827,21 +830,10 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     marginTop: spacing.sm
   },
-  subscriptionOptionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between'
-  },
   subscriptionOptionTitle: {
     fontSize: 16,
     fontWeight: '700',
     color: colors.textPrimary
-  },
-  subscriptionTrialTag: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: colors.primary,
-    textTransform: 'uppercase'
   },
   subscriptionOptionDescription: {
     fontSize: 13,

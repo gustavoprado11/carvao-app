@@ -1,6 +1,7 @@
 import React from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MenuScreen } from '../screens/MenuScreen';
 import { TablesScreen } from '../screens/TablesScreen';
 import { ConversationsStack } from './ConversationsStack';
@@ -18,6 +19,10 @@ const Tab = createBottomTabNavigator<MainTabParamList>();
 
 export const MainTabs: React.FC = () => {
   const { unreadCount } = useConversationRead();
+  const insets = useSafeAreaInsets();
+  const bottomInset = Math.max(insets.bottom, 12);
+  const tabBarHeight = 60 + bottomInset;
+
   return (
     <>
       <MessageNotificationListener />
@@ -32,10 +37,11 @@ export const MainTabs: React.FC = () => {
           elevation: 5,
           shadowOpacity: 0.08,
           shadowRadius: 12,
-          height: 72,
-          paddingBottom: 12,
+          height: tabBarHeight,
+          paddingBottom: bottomInset,
           paddingTop: 12
         },
+        tabBarHideOnKeyboard: true,
         tabBarIcon: ({ color, size }) => {
           const icon = getIconName(route.name);
           return <Ionicons name={icon} size={size} color={color} />;

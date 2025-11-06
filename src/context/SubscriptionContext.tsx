@@ -84,16 +84,25 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({ 
         | null;
       const mapped =
         fetched?.map((item: Product) => {
-          const formattedPrice = item.displayPrice ?? '';
+          const rawItem = item as unknown as {
+            productId?: string;
+            sku?: string;
+            id?: string;
+            displayPrice?: string;
+            price?: string;
+            localizedPrice?: string;
+          };
+          const formattedPrice =
+            rawItem.displayPrice ?? rawItem.localizedPrice ?? rawItem.price ?? '';
           return {
-            productId: item.id,
+            productId: rawItem.productId ?? rawItem.sku ?? rawItem.id ?? '',
             title: item.title,
             description: item.description,
             price: formattedPrice,
             priceString: formattedPrice
           };
         }) ?? [];
-      setProducts(mapped);
+      setProducts(mapped.filter(product => product.productId));
       if (!mapped.length) {
         setError('Nenhum plano disponível no momento. Verifique os produtos configurados na loja.');
       }
