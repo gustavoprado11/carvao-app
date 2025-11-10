@@ -123,6 +123,7 @@ export const ConversationsScreen: React.FC = () => {
   const [isLoadingList, setIsLoadingList] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [steelPartners, setSteelPartners] = useState<UserProfile[]>([]);
+  const [cachedSnapshot, setCachedSnapshot] = useState<ConversationPreview[]>([]);
   const [supplierPartners, setSupplierPartners] = useState<UserProfile[]>([]);
   const [isNewConversationVisible, setIsNewConversationVisible] = useState(false);
   const [selectedSteelEmail, setSelectedSteelEmail] = useState<string | null>(null);
@@ -149,6 +150,7 @@ export const ConversationsScreen: React.FC = () => {
       const data = await fetchConversationsByProfile(profile.email, profile.type);
       setConversations(data);
       recordConversationsSnapshot(data);
+      setCachedSnapshot(data);
     } finally {
       if (!silent) {
         setIsLoadingList(false);
@@ -167,8 +169,11 @@ export const ConversationsScreen: React.FC = () => {
 
   useFocusEffect(
     useCallback(() => {
-      void loadConversations();
-    }, [loadConversations])
+      if (cachedSnapshot.length) {
+        setConversations(cachedSnapshot);
+      }
+      void loadConversations({ silent: cachedSnapshot.length > 0 });
+    }, [cachedSnapshot, loadConversations])
   );
 
   React.useEffect(() => {

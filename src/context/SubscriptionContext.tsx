@@ -39,6 +39,11 @@ type SubscriptionContextValue = {
   purchaseInProgress: boolean;
   restoreInProgress: boolean;
   activeReceipt: string | null;
+  activeSubscription: {
+    productId: string;
+    transactionDate?: number;
+    renewalDate?: number | null;
+  } | null;
   error: string | null;
   purchaseSubscription: (productId: string) => Promise<void>;
   restorePurchases: () => Promise<void>;
@@ -55,6 +60,11 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const [purchaseInProgress, setPurchaseInProgress] = useState(false);
   const [restoreInProgress, setRestoreInProgress] = useState(false);
   const [activeReceipt, setActiveReceipt] = useState<string | null>(null);
+  const [activeSubscription, setActiveSubscription] = useState<{
+    productId: string;
+    transactionDate?: number;
+    renewalDate?: number | null;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const purchaseUpdateSubscription = useRef<ReturnType<typeof purchaseUpdatedListener> | null>(null);
   const purchaseErrorSubscription = useRef<ReturnType<typeof purchaseErrorListener> | null>(null);
@@ -130,6 +140,18 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({ 
         subscriptionPurchase?.id ??
         null;
       setActiveReceipt(receipt ?? null);
+      if (subscriptionPurchase?.productId) {
+        const renewalDate =
+          (subscriptionPurchase as Purchase & { renewalInfoIOS?: { renewalDate?: number | null } })
+            ?.renewalInfoIOS?.renewalDate ?? null;
+        setActiveSubscription({
+          productId: subscriptionPurchase.productId,
+          transactionDate: subscriptionPurchase.transactionDate,
+          renewalDate
+        });
+      } else {
+        setActiveSubscription(null);
+      }
     } catch (err) {
       console.warn('[IAP] purchase history error', err);
     }
@@ -258,6 +280,7 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({ 
       purchaseInProgress,
       restoreInProgress,
       activeReceipt,
+      activeSubscription,
       error,
       purchaseSubscription,
       restorePurchases,
@@ -271,6 +294,7 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({ 
       purchaseInProgress,
       restoreInProgress,
       activeReceipt,
+      activeSubscription,
       error,
       purchaseSubscription,
       restorePurchases,

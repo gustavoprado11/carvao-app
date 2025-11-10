@@ -4,7 +4,8 @@ export type SubscriptionPlan = {
   productId: string;
   title: string;
   description: string;
-  equivalentPrice: string;
+  billingPeriodLabel: string;
+  priceNote?: string;
   ctaLabel: string;
 };
 
@@ -13,21 +14,24 @@ const IOS_SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
     productId: 'carvao_connect_monthly',
     title: 'Plano Mensal',
     description: 'Cobrança recorrente mensal, liberdade para cancelar quando quiser.',
-    equivalentPrice: 'R$29,90 por mês',
+    billingPeriodLabel: 'por mês',
+    priceNote: 'Valor debitado mensalmente e renovado automaticamente.',
     ctaLabel: 'Assinar mensal'
   },
   {
     productId: 'carvao_connect_semiannual',
     title: 'Plano Semestral',
     description: 'Economize mantendo o acesso premium por 6 meses completos.',
-    equivalentPrice: 'Equivalente a R$24,98 por mês (cobrança de R$149,90 a cada 6 meses)',
+    billingPeriodLabel: 'a cada 6 meses',
+    priceNote: 'Equivalente a R$24,98 por mês. Cobrança de R$149,90 por ciclo.',
     ctaLabel: 'Assinar semestral'
   },
   {
     productId: 'carvao_connect_annual',
     title: 'Plano Anual',
     description: 'A melhor economia para fornecedores ativos o ano inteiro.',
-    equivalentPrice: 'Equivalente a R$20,82 por mês (cobrança de R$249,90 ao ano)',
+    billingPeriodLabel: 'por ano',
+    priceNote: 'Equivalente a R$20,82 por mês. Cobrança de R$249,90 ao ano.',
     ctaLabel: 'Assinar anual'
   }
 ];
@@ -37,21 +41,24 @@ const ANDROID_SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
     productId: 'carvao_connect_monthly',
     title: 'Plano Mensal',
     description: 'Cobrança recorrente mensal, liberdade para cancelar quando quiser.',
-    equivalentPrice: 'R$29,90 por mês',
+    billingPeriodLabel: 'por mês',
+    priceNote: 'Valor debitado mensalmente e renovado automaticamente.',
     ctaLabel: 'Assinar mensal'
   },
   {
     productId: 'carvao_connect_semiannual',
     title: 'Plano Semestral',
     description: 'Economize mantendo o acesso premium por 6 meses completos.',
-    equivalentPrice: 'Equivalente a R$24,98 por mês (cobrança de R$149,90 a cada 6 meses)',
+    billingPeriodLabel: 'a cada 6 meses',
+    priceNote: 'Equivalente a R$24,98 por mês. Cobrança de R$149,90 por ciclo.',
     ctaLabel: 'Assinar semestral'
   },
   {
     productId: 'carvao_connect_annual',
     title: 'Plano Anual',
     description: 'A melhor economia para fornecedores ativos o ano inteiro.',
-    equivalentPrice: 'Equivalente a R$20,82 por mês (cobrança de R$249,90 ao ano)',
+    billingPeriodLabel: 'por ano',
+    priceNote: 'Equivalente a R$20,82 por mês. Cobrança de R$249,90 ao ano.',
     ctaLabel: 'Assinar anual'
   }
 ];

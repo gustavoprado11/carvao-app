@@ -2,9 +2,9 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  InteractionManager,
   Linking,
   Modal,
-  PermissionsAndroid,
   Platform,
   ScrollView,
   StyleSheet,
@@ -15,6 +15,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import Constants from 'expo-constants';
 import { useNavigation, type NavigationProp } from '@react-navigation/native';
 import { colors, spacing } from '../theme';
 import { TextField } from '../components/TextField';
@@ -33,6 +34,7 @@ import {
 import type { MainTabParamList } from '../navigation/MainTabs';
 import type { SupplyAudience } from '../types/profile';
 import { deleteCurrentAccount } from '../services/accountService';
+import { presentCodeRedemptionSheetIOS } from 'react-native-iap';
 
 type ProfileFormState = {
   email: string;
@@ -53,6 +55,7 @@ export const MenuScreen: React.FC = () => {
     purchaseInProgress,
     restoreInProgress,
     activeReceipt,
+    activeSubscription,
     error: subscriptionError,
     purchaseSubscription,
     restorePurchases,
@@ -69,9 +72,11 @@ export const MenuScreen: React.FC = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
-  const [locationStatus, setLocationStatus] = useState<'unknown' | 'granted' | 'denied'>('unknown');
-  const [locationLoading, setLocationLoading] = useState(false);
   const [notificationLoading, setNotificationLoading] = useState(false);
+  const [helpCenterVisible, setHelpCenterVisible] = useState(false);
+  const [redeemInProgress, setRedeemInProgress] = useState(false);
+  const [showAllPlans, setShowAllPlans] = useState(false);
+  const appName = Constants?.expoConfig?.name ?? 'Carvão Connect';
   const insets = useSafeAreaInsets();
   const [form, setForm] = useState<ProfileFormState>({
     email: profile.email,
@@ -154,6 +159,27 @@ export const MenuScreen: React.FC = () => {
     });
     return options;
   }, [subscriptionProducts]);
+
+  const activeSubscriptionSummary = useMemo(() => {
+    if (!activeSubscription) {
+      return null;
+    }
+    const match = subscriptionPlanOptions.find(option => option.product.productId === activeSubscription.productId);
+    if (!match) {
+      return {
+        productId: activeSubscription.productId,
+        renewalDate: activeSubscription.renewalDate,
+        product: undefined,
+        plan: undefined
+      };
+    }
+    return {
+      productId: activeSubscription.productId,
+      renewalDate: activeSubscription.renewalDate,
+      product: match.product,
+      plan: match.plan
+    };
+  }, [activeSubscription, subscriptionPlanOptions]);
 
   const isSubscriptionLoading = loadingSubscriptionProducts;
   const isSubscriptionActive = Boolean(activeReceipt);
@@ -245,68 +271,6 @@ export const MenuScreen: React.FC = () => {
     setSettingsVisible(false);
   };
 
-  useEffect(() => {
-    if (Platform.OS === 'android') {
-      PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION)
-        .then(granted => setLocationStatus(granted ? 'granted' : 'denied'))
-        .catch(() => setLocationStatus('denied'));
-    } else {
-      setLocationStatus('unknown');
-    }
-  }, []);
-
-  const handleLocationPermission = async () => {
-    if (Platform.OS === 'android') {
-      try {
-        setLocationLoading(true);
-        const result = await PermissionsAndroid.request(
-          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
-          {
-            title: 'Permissão de localização',
-            message: 'Precisamos da sua localização para personalizar informações no aplicativo.',
-            buttonPositive: 'Permitir',
-            buttonNegative: 'Agora não'
-          }
-        );
-
-        if (result === PermissionsAndroid.RESULTS.GRANTED) {
-          setLocationStatus('granted');
-          Alert.alert('Localização habilitada', 'Permissão concedida com sucesso.');
-        } else if (result === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN) {
-          setLocationStatus('denied');
-          Alert.alert(
-            'Permissão bloqueada',
-            'Ajuste a permissão de localização nas configurações do sistema para ativá-la.'
-          );
-        } else {
-          setLocationStatus('denied');
-          Alert.alert('Permissão negada', 'Não foi possível ativar a localização.');
-        }
-      } catch (error) {
-        setLocationStatus('denied');
-        Alert.alert('Permissões', 'Não foi possível solicitar a permissão de localização.');
-        console.warn('[Permissions] Request location failed', error);
-      } finally {
-        setLocationLoading(false);
-      }
-      return;
-    }
-
-    Alert.alert(
-      'Ativar localização',
-      'Abra as configurações do sistema para ajustar a permissão de localização.',
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Abrir configurações',
-          onPress: () => {
-            void Linking.openSettings();
-          }
-        }
-      ]
-    );
-  };
-
   const handleNotificationPermission = async () => {
     if (!notificationsSupported) {
       Alert.alert('Notificações', 'Seu dispositivo não suporta notificações push.');
@@ -357,16 +321,86 @@ export const MenuScreen: React.FC = () => {
     );
   };
 
+  const openHelpCenter = () => setHelpCenterVisible(true);
+  const closeHelpCenter = () => setHelpCenterVisible(false);
+
   const handleOpenHelpCenter = () => {
-    openExternalLink('https://carvaoconnect.com.br/ajuda');
+    setSettingsVisible(false);
+    InteractionManager.runAfterInteractions(() => {
+      openHelpCenter();
+    });
   };
 
-  const locationStatusLabel =
-    locationStatus === 'granted'
-      ? 'Ativada'
-      : locationStatus === 'denied'
-        ? 'Desativada'
-        : 'Configurar no sistema';
+  const refundLink =
+    Platform.OS === 'ios'
+      ? 'https://reportaproblem.apple.com/'
+      : 'https://support.google.com/googleplay/answer/2479637';
+
+  const billingHelpLink =
+    Platform.OS === 'ios'
+      ? 'https://support.apple.com/pt-br/HT204084'
+      : 'https://support.google.com/googleplay/answer/2850369';
+
+  const handleRequestRefund = () => {
+    closeHelpCenter();
+    openExternalLink(refundLink);
+  };
+
+  const handleContactSupport = () => {
+    openExternalLink('mailto:suporte@carvaoconnect.com.br?subject=Ajuda%20com%20assinaturas');
+  };
+  const handleRedeemCode = async () => {
+    if (Platform.OS === 'ios') {
+      try {
+        setRedeemInProgress(true);
+        await presentCodeRedemptionSheetIOS();
+      } catch (error) {
+        Alert.alert('Resgatar código', 'Não foi possível abrir a tela de resgate agora.');
+        console.warn('[Subscription] redeem code failed', error);
+      } finally {
+        setRedeemInProgress(false);
+      }
+      return;
+    }
+    openExternalLink('https://play.google.com/redeem');
+  };
+
+  const helpTopics = [
+    {
+      id: 'missing',
+      title: 'Compra não encontrada',
+      description:
+        'Confirme se você está logado com a mesma conta utilizada para assinar. Se ainda assim não localizar, toque aqui para abrir as instruções oficiais da loja.',
+      action: () => openExternalLink(billingHelpLink)
+    },
+    {
+      id: 'faq',
+      title: 'Perguntas frequentes',
+      description: 'Entenda como funcionam cobrança, renovação automática e cancelamentos.',
+      action: () => openExternalLink('https://carvaoconnect.com.br/faq')
+    },
+    {
+      id: 'feedback',
+      title: 'Enviar feedback',
+      description: 'Identificou algum erro ou precisa de ajustes na sua assinatura? Conte para nós.',
+      action: handleContactSupport
+    }
+  ];
+
+  const formatBillingDate = (value?: number | null) => {
+    if (!value) {
+      return 'Disponível na loja';
+    }
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return 'Disponível na loja';
+    }
+    return date.toLocaleDateString('pt-BR', {
+      day: '2-digit',
+      month: 'long',
+      year: 'numeric'
+    });
+  };
 
   const notificationStatusLabel =
     notificationStatus === 'granted'
@@ -552,37 +586,110 @@ export const MenuScreen: React.FC = () => {
                       Escolha o plano ideal para fornecedores e desbloqueie alertas antecipados, relatórios exclusivos e
                       suporte dedicado.
                     </Text>
+                    {activeSubscriptionSummary ? (
+                      <View style={styles.subscriptionSummaryCard}>
+                        <Text style={styles.subscriptionSummaryLabel}>Sua assinatura</Text>
+                        <Text style={styles.subscriptionSummaryApp}>{appName}</Text>
+                        <Text style={styles.subscriptionSummaryPlan}>
+                          {activeSubscriptionSummary.plan?.title ?? 'Plano ativo'}
+                        </Text>
+                        <Text style={styles.subscriptionSummaryPrice}>
+                          {activeSubscriptionSummary.product?.priceString ?? 'Valor disponível na loja'}{' '}
+                          {activeSubscriptionSummary.plan?.billingPeriodLabel ? (
+                            <Text style={styles.subscriptionPricePeriod}>
+                              {activeSubscriptionSummary.plan?.billingPeriodLabel}
+                            </Text>
+                          ) : null}
+                        </Text>
+                        <Text style={styles.subscriptionSummaryNextBilling}>
+                          Próxima cobrança: {formatBillingDate(activeSubscriptionSummary.renewalDate)}
+                        </Text>
+                      </View>
+                    ) : null}
                     {isSubscriptionLoading ? (
                       <Text style={styles.subscriptionLoadingText}>Carregando planos...</Text>
                     ) : subscriptionPlanOptions.length > 0 ? (
-                      subscriptionPlanOptions.map(({ plan, product }) => (
-                        <View key={plan.productId} style={styles.subscriptionOption}>
-                          <Text style={styles.subscriptionOptionTitle}>{plan.title}</Text>
-                          <Text style={styles.subscriptionPrice}>{product.priceString ?? product.price}</Text>
-                          <Text style={styles.subscriptionEquivalent}>{plan.equivalentPrice}</Text>
-                          <Text style={styles.subscriptionOptionDescription}>{plan.description}</Text>
-                          <PrimaryButton
-                            label={plan.ctaLabel}
-                            onPress={() => handleSubscribe(product.productId)}
-                            disabled={isAnySubscriptionBusy || isSubscriptionActive}
-                            loading={isPurchaseProcessing}
-                          />
-                        </View>
-                      ))
+                      <>
+                        {subscriptionPlanOptions
+                          .slice(0, activeSubscriptionSummary && !showAllPlans ? 1 : subscriptionPlanOptions.length)
+                          .map(({ plan, product }) => (
+                            <View key={plan.productId} style={styles.subscriptionOption}>
+                              <Text style={styles.subscriptionOptionTitle}>{plan.title}</Text>
+                              <Text style={styles.subscriptionPrice}>
+                                {product.priceString ?? product.price}{' '}
+                                <Text style={styles.subscriptionPricePeriod}>{plan.billingPeriodLabel}</Text>
+                              </Text>
+                              {plan.priceNote ? (
+                                <Text style={styles.subscriptionEquivalent}>{plan.priceNote}</Text>
+                              ) : null}
+                              <Text style={styles.subscriptionOptionDescription}>{plan.description}</Text>
+                              <PrimaryButton
+                                label={plan.ctaLabel}
+                                onPress={() => handleSubscribe(product.productId)}
+                                disabled={isAnySubscriptionBusy || (isSubscriptionActive && plan.productId === activeSubscriptionSummary?.productId)}
+                                loading={isPurchaseProcessing}
+                              />
+                            </View>
+                          ))}
+                        {activeSubscriptionSummary && subscriptionPlanOptions.length > 1 ? (
+                          <TouchableOpacity
+                            style={styles.togglePlansButton}
+                            onPress={() => setShowAllPlans(prev => !prev)}
+                          >
+                            <Text style={styles.togglePlansText}>
+                              {showAllPlans ? 'Ocultar outros planos' : 'Ver todos os planos'}
+                            </Text>
+                            <Ionicons
+                              name={showAllPlans ? 'chevron-up' : 'chevron-down'}
+                              size={18}
+                              color={colors.primary}
+                            />
+                          </TouchableOpacity>
+                        ) : null}
+                      </>
                     ) : (
                       <Text style={styles.subscriptionUnavailable}>
                         Nenhum plano disponível. Confirme se as assinaturas já foram enviadas para revisão na App Store.
                       </Text>
                     )}
-                    <View style={styles.subscriptionActions}>
-                      <TouchableOpacity onPress={handleRestorePurchases} disabled={restoreInProgress}>
-                        <Text style={[styles.subscriptionLink, restoreInProgress && styles.subscriptionLinkDisabled]}>
+                    <View style={styles.subscriptionManagement}>
+                      <TouchableOpacity
+                        style={styles.managementButton}
+                        onPress={() => openExternalLink(SUBSCRIPTION_MANAGEMENT_LINK)}
+                      >
+                        <Ionicons name="settings-outline" size={16} color={colors.primary} />
+                        <Text style={styles.managementButtonText}>Gerenciar assinatura</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.managementButton}
+                        onPress={handleRestorePurchases}
+                        disabled={restoreInProgress}
+                      >
+                        <Ionicons name="refresh-outline" size={16} color={colors.primary} />
+                        <Text
+                          style={[
+                            styles.managementButtonText,
+                            restoreInProgress && styles.subscriptionLinkDisabled
+                          ]}
+                        >
                           {restoreInProgress ? 'Restaurando...' : 'Restaurar compras'}
                         </Text>
                       </TouchableOpacity>
-                      {isSubscriptionActive ? (
-                        <TouchableOpacity onPress={() => openExternalLink(SUBSCRIPTION_MANAGEMENT_LINK)}>
-                          <Text style={styles.subscriptionLink}>Gerenciar na loja</Text>
+                      {Platform.OS === 'ios' ? (
+                        <TouchableOpacity
+                          style={styles.managementButton}
+                          onPress={handleRedeemCode}
+                          disabled={redeemInProgress}
+                        >
+                          <Ionicons name="gift-outline" size={16} color={colors.primary} />
+                          <Text
+                            style={[
+                              styles.managementButtonText,
+                              redeemInProgress && styles.subscriptionLinkDisabled
+                            ]}
+                          >
+                            {redeemInProgress ? 'Abrindo...' : 'Resgatar código'}
+                          </Text>
                         </TouchableOpacity>
                       ) : null}
                     </View>
@@ -662,19 +769,6 @@ export const MenuScreen: React.FC = () => {
               <Text style={styles.settingsSectionLabel}>Permissão</Text>
               <TouchableOpacity
                 style={styles.settingsOption}
-                onPress={handleLocationPermission}
-                disabled={locationLoading}
-                accessibilityRole="button"
-              >
-                <Ionicons name="location-outline" size={18} color={colors.textPrimary} />
-                <View style={styles.settingsOptionContent}>
-                  <Text style={styles.settingsOptionText}>Localização</Text>
-                  <Text style={styles.settingsOptionHint}>{locationStatusLabel}</Text>
-                </View>
-                {locationLoading ? <ActivityIndicator size="small" color={colors.primary} /> : null}
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.settingsOption}
                 onPress={handleNotificationPermission}
                 disabled={notificationLoading}
                 accessibilityRole="button"
@@ -705,10 +799,10 @@ export const MenuScreen: React.FC = () => {
 
             <View style={styles.settingsSection}>
               <Text style={styles.settingsSectionLabel}>Ajuda</Text>
-              <TouchableOpacity style={styles.settingsOption} onPress={handleOpenHelpCenter} accessibilityRole="link">
-                <Ionicons name="help-circle-outline" size={18} color={colors.textPrimary} />
-                <Text style={styles.settingsOptionText}>Central de ajuda</Text>
-              </TouchableOpacity>
+            <TouchableOpacity style={styles.settingsOption} onPress={handleOpenHelpCenter} accessibilityRole="link">
+              <Ionicons name="help-circle-outline" size={18} color={colors.textPrimary} />
+              <Text style={styles.settingsOptionText}>Central de ajuda</Text>
+            </TouchableOpacity>
               <TouchableOpacity style={[styles.settingsOption, styles.settingsOptionLast]} onPress={confirmLogout}>
                 <Ionicons name="log-out-outline" size={18} color={colors.accent} />
                 <Text style={[styles.settingsOptionText, styles.settingsLogoutText]}>Sair do app</Text>
@@ -716,6 +810,79 @@ export const MenuScreen: React.FC = () => {
             </View>
           </View>
         </View>
+      </Modal>
+      <Modal
+        visible={helpCenterVisible}
+        animationType="slide"
+        onRequestClose={closeHelpCenter}
+        presentationStyle="pageSheet"
+      >
+        <SafeAreaView
+          edges={['left', 'right']}
+          style={[
+            styles.helpCenterContainer,
+            { paddingTop: insets.top, paddingBottom: Math.max(insets.bottom, spacing.lg) }
+          ]}
+        >
+          <View style={styles.helpCenterHeader}>
+            <TouchableOpacity onPress={closeHelpCenter} style={styles.helpBackButton}>
+              <Ionicons name="chevron-back" size={22} color={colors.textPrimary} />
+              <Text style={styles.helpBackLabel}>Configurações</Text>
+            </TouchableOpacity>
+            <Text style={styles.helpCenterTitle}>Central de ajuda</Text>
+            <View style={{ width: 44 }} />
+          </View>
+          <ScrollView
+            contentContainerStyle={styles.helpCenterContent}
+            showsVerticalScrollIndicator={false}
+            contentInsetAdjustmentBehavior="always"
+          >
+            <View style={styles.helpInfoCard}>
+              <Text style={styles.helpSectionTitle}>Como podemos ajudar?</Text>
+              {helpTopics.map(topic => (
+                <TouchableOpacity key={topic.id} style={styles.helpTopic} onPress={topic.action}>
+                  <View style={styles.helpTopicTextWrapper}>
+                    <Text style={styles.helpTopicTitle}>{topic.title}</Text>
+                    <Text style={styles.helpTopicDescription}>{topic.description}</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <View style={styles.helpInfoCard}>
+              <Text style={styles.helpSectionTitle}>Compras recentes</Text>
+              {subscriptionProducts.length ? (
+                subscriptionProducts.slice(0, 3).map((product, index) => (
+                  <View key={`${product.productId}-${index}`} style={styles.purchaseItem}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.purchaseTitle}>{product.title}</Text>
+                      <Text style={styles.purchaseDescription}>{product.description}</Text>
+                      <Text style={styles.purchaseMeta}>
+                        {product.priceString ?? product.price} — {product.productId}
+                      </Text>
+                    </View>
+                  </View>
+                ))
+              ) : (
+                <Text style={styles.helpTopicDescription}>
+                  Nenhuma compra registrada neste dispositivo ainda. Assim que você assinar, ela aparecerá aqui.
+                </Text>
+              )}
+            </View>
+
+            <View style={styles.helpInfoCard}>
+              <Text style={styles.helpSectionTitle}>Precisa de reembolso?</Text>
+              <Text style={styles.helpTopicDescription}>
+                A Apple analisa sua solicitação. Descreva o que aconteceu e, se preferir, fale conosco antes de enviar.
+              </Text>
+              <PrimaryButton label="Solicitar reembolso" onPress={handleRequestRefund} />
+              <TouchableOpacity style={styles.helpSecondaryButton} onPress={handleContactSupport}>
+                <Text style={styles.helpSecondaryButtonText}>Falar com o suporte</Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </SafeAreaView>
       </Modal>
     </View>
   );
@@ -801,15 +968,20 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8
   },
   subscriptionPrice: {
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 20,
+    fontWeight: '700',
     color: colors.textPrimary
   },
-  subscriptionEquivalent: {
-    fontSize: 13,
+  subscriptionPricePeriod: {
+    fontSize: 14,
     fontWeight: '600',
-    color: colors.primary,
-    marginTop: spacing.xs
+    color: colors.textSecondary
+  },
+  subscriptionEquivalent: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: colors.textSecondary,
+    marginTop: spacing.xs / 2
   },
   subscriptionDescription: {
     fontSize: 15,
@@ -845,10 +1017,68 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     marginTop: spacing.sm
   },
-  subscriptionActions: {
+  subscriptionSummaryCard: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: spacing.lg,
+    padding: spacing.md,
+    backgroundColor: colors.glassSurface,
+    marginTop: spacing.sm,
+    gap: spacing.xs
+  },
+  subscriptionSummaryLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8
+  },
+  subscriptionSummaryApp: {
+    fontSize: 15,
+    color: colors.textSecondary
+  },
+  subscriptionSummaryPlan: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.textPrimary
+  },
+  subscriptionSummaryPrice: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.textPrimary
+  },
+  subscriptionSummaryNextBilling: {
+    fontSize: 13,
+    color: colors.textSecondary
+  },
+  subscriptionManagement: {
+    marginTop: spacing.md,
+    gap: spacing.sm
+  },
+  managementButton: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center'
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingVertical: spacing.xs,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border
+  },
+  managementButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.primary
+  },
+  togglePlansButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    marginTop: spacing.sm
+  },
+  togglePlansText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.primary
   },
   subscriptionLink: {
     fontSize: 14,
@@ -857,6 +1087,106 @@ const styles = StyleSheet.create({
   },
   subscriptionLinkDisabled: {
     color: colors.textSecondary
+  },
+  helpCenterContainer: {
+    flex: 1,
+    backgroundColor: colors.background
+  },
+  helpCenterHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border
+  },
+  helpBackButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs
+  },
+  helpBackLabel: {
+    fontSize: 14,
+    color: colors.textSecondary
+  },
+  helpCenterTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: colors.textPrimary
+  },
+  helpCenterContent: {
+    padding: spacing.lg,
+    gap: spacing.lg
+  },
+  helpInfoCard: {
+    backgroundColor: colors.surface,
+    borderRadius: spacing.lg,
+    padding: spacing.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    gap: spacing.sm
+  },
+  helpSectionTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.textPrimary
+  },
+  helpTopic: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border
+  },
+  helpTopicTextWrapper: {
+    flex: 1,
+    gap: spacing.xs / 2
+  },
+  helpTopicTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.textPrimary
+  },
+  helpTopicDescription: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    lineHeight: 20
+  },
+  purchaseItem: {
+    borderRadius: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+    backgroundColor: colors.glassSurface
+  },
+  purchaseTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.textPrimary
+  },
+  purchaseDescription: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    marginTop: spacing.xs / 2
+  },
+  purchaseMeta: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginTop: spacing.xs
+  },
+  helpSecondaryButton: {
+    marginTop: spacing.sm,
+    borderRadius: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    paddingVertical: spacing.sm,
+    alignItems: 'center'
+  },
+  helpSecondaryButtonText: {
+    color: colors.primary,
+    fontWeight: '600'
   },
   subscriptionLegal: {
     fontSize: 12,
