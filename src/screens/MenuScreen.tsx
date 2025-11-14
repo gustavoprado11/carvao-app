@@ -186,6 +186,27 @@ export const MenuScreen: React.FC = () => {
   const isPurchaseProcessing = purchaseInProgress;
   const isAnySubscriptionBusy = purchaseInProgress || restoreInProgress;
 
+  const profileDetailItems = useMemo(
+    () => [
+      {
+        id: 'email',
+        label: 'E-mail',
+        value: profile.email
+      },
+      {
+        id: 'contact',
+        label: 'Responsável',
+        value: profile.contact ?? 'Não informado'
+      },
+      {
+        id: 'location',
+        label: 'Localização',
+        value: profile.location ?? 'Não informada'
+      }
+    ],
+    [profile.email, profile.contact, profile.location]
+  );
+
   useEffect(() => {
     if (subscriptionError) {
       Alert.alert('Assinatura', subscriptionError, [{ text: 'OK', onPress: clearError }]);
@@ -503,30 +524,24 @@ export const MenuScreen: React.FC = () => {
           ) : (
             <>
               <View style={styles.profileHeader}>
-                <View>
-                  <Text style={styles.profileLabel}>Seu perfil</Text>
+                <View style={styles.profileSummary}>
                   <Text style={styles.profileRole}>{profileLabels[profile.type]}</Text>
                   <Text style={styles.profileCompany}>{profile.company ?? 'Empresa não informada'}</Text>
+                  <Text style={styles.profileLabel}>Seu perfil</Text>
                 </View>
                 <TouchableOpacity style={styles.editChip} onPress={() => setIsEditing(true)}>
-                  <Ionicons color={colors.primary} name="create-outline" size={18} />
+                  <Ionicons color={colors.primary} name="create-outline" size={16} />
                   <Text style={styles.editChipText}>Editar</Text>
                 </TouchableOpacity>
               </View>
 
-              <View style={styles.profileDetails}>
-                <View style={styles.detailBlock}>
-                  <Text style={styles.detailLabel}>E-mail</Text>
-                  <Text style={styles.detailValue}>{profile.email}</Text>
-                </View>
-                <View style={styles.detailBlock}>
-                  <Text style={styles.detailLabel}>Responsável</Text>
-                  <Text style={styles.detailValue}>{profile.contact ?? 'Não informado'}</Text>
-                </View>
-                <View style={styles.detailBlock}>
-                  <Text style={styles.detailLabel}>Localização</Text>
-                  <Text style={styles.detailValue}>{profile.location ?? 'Não informada'}</Text>
-                </View>
+              <View style={styles.profileGrid}>
+                {profileDetailItems.map(item => (
+                  <View key={item.id} style={styles.detailCard}>
+                    <Text style={styles.detailLabel}>{item.label}</Text>
+                    <Text style={styles.detailValue}>{item.value}</Text>
+                  </View>
+                ))}
               </View>
 
               {isSupplierProfile ? (
@@ -613,7 +628,14 @@ export const MenuScreen: React.FC = () => {
                         {subscriptionPlanOptions
                           .slice(0, activeSubscriptionSummary && !showAllPlans ? 1 : subscriptionPlanOptions.length)
                           .map(({ plan, product }) => (
-                            <View key={plan.productId} style={styles.subscriptionOption}>
+                            <View
+                              key={plan.productId}
+                              style={[
+                                styles.subscriptionOption,
+                                activeSubscriptionSummary?.productId === plan.productId &&
+                                  styles.subscriptionOptionActive
+                              ]}
+                            >
                               <Text style={styles.subscriptionOptionTitle}>{plan.title}</Text>
                               <Text style={styles.subscriptionPrice}>
                                 {product.priceString ?? product.price}{' '}
@@ -628,6 +650,7 @@ export const MenuScreen: React.FC = () => {
                                 onPress={() => handleSubscribe(product.productId)}
                                 disabled={isAnySubscriptionBusy || (isSubscriptionActive && plan.productId === activeSubscriptionSummary?.productId)}
                                 loading={isPurchaseProcessing}
+                                style={styles.subscriptionButton}
                               />
                             </View>
                           ))}
@@ -653,45 +676,50 @@ export const MenuScreen: React.FC = () => {
                       </Text>
                     )}
                     <View style={styles.subscriptionManagement}>
-                      <TouchableOpacity
-                        style={styles.managementButton}
-                        onPress={() => openExternalLink(SUBSCRIPTION_MANAGEMENT_LINK)}
-                      >
-                        <Ionicons name="settings-outline" size={16} color={colors.primary} />
-                        <Text style={styles.managementButtonText}>Gerenciar assinatura</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={styles.managementButton}
-                        onPress={handleRestorePurchases}
-                        disabled={restoreInProgress}
-                      >
-                        <Ionicons name="refresh-outline" size={16} color={colors.primary} />
-                        <Text
-                          style={[
-                            styles.managementButtonText,
-                            restoreInProgress && styles.subscriptionLinkDisabled
-                          ]}
-                        >
-                          {restoreInProgress ? 'Restaurando...' : 'Restaurar compras'}
-                        </Text>
-                      </TouchableOpacity>
-                      {Platform.OS === 'ios' ? (
+                      <View style={styles.subscriptionManagementCard}>
                         <TouchableOpacity
                           style={styles.managementButton}
-                          onPress={handleRedeemCode}
-                          disabled={redeemInProgress}
+                          onPress={() => openExternalLink(SUBSCRIPTION_MANAGEMENT_LINK)}
                         >
-                          <Ionicons name="gift-outline" size={16} color={colors.primary} />
+                          <Ionicons name="settings-outline" size={16} color={colors.primary} />
+                          <Text style={styles.managementButtonText}>Gerenciar assinatura</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[
+                            styles.managementButton,
+                            Platform.OS !== 'ios' && styles.managementButtonLast
+                          ]}
+                          onPress={handleRestorePurchases}
+                          disabled={restoreInProgress}
+                        >
+                          <Ionicons name="refresh-outline" size={16} color={colors.primary} />
                           <Text
                             style={[
                               styles.managementButtonText,
-                              redeemInProgress && styles.subscriptionLinkDisabled
+                              restoreInProgress && styles.subscriptionLinkDisabled
                             ]}
                           >
-                            {redeemInProgress ? 'Abrindo...' : 'Resgatar código'}
+                            {restoreInProgress ? 'Restaurando...' : 'Restaurar compras'}
                           </Text>
                         </TouchableOpacity>
-                      ) : null}
+                        {Platform.OS === 'ios' ? (
+                          <TouchableOpacity
+                            style={[styles.managementButton, styles.managementButtonLast]}
+                            onPress={handleRedeemCode}
+                            disabled={redeemInProgress}
+                          >
+                            <Ionicons name="gift-outline" size={16} color={colors.primary} />
+                            <Text
+                              style={[
+                                styles.managementButtonText,
+                                redeemInProgress && styles.subscriptionLinkDisabled
+                              ]}
+                            >
+                              {redeemInProgress ? 'Abrindo...' : 'Resgatar código'}
+                            </Text>
+                          </TouchableOpacity>
+                        ) : null}
+                      </View>
                     </View>
                     <Text style={styles.subscriptionLegal}>
                       Ao continuar você aceita os{' '}
@@ -890,15 +918,15 @@ export const MenuScreen: React.FC = () => {
 
 const glassCard = {
   backgroundColor: colors.surface,
-  borderRadius: spacing.xxl,
+  borderRadius: spacing.lg,
   padding: spacing.xl,
   borderWidth: 1,
   borderColor: colors.border,
-  shadowColor: 'rgba(15,23,42,0.1)',
-  shadowOffset: { width: 0, height: 16 },
+  shadowColor: 'rgba(0,0,0,0.04)',
+  shadowOffset: { width: 0, height: 4 },
   shadowOpacity: 1,
-  shadowRadius: 32,
-  elevation: 4
+  shadowRadius: 12,
+  elevation: 3
 } as const;
 
 const styles = StyleSheet.create({
@@ -942,7 +970,7 @@ const styles = StyleSheet.create({
   },
   subscriptionCard: {
     ...glassCard,
-    gap: spacing.sm
+    gap: spacing.md
   },
   subscriptionHeader: {
     flexDirection: 'row',
@@ -968,9 +996,9 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8
   },
   subscriptionPrice: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: colors.textPrimary
+    fontSize: 24,
+    fontWeight: '800',
+    color: colors.primary
   },
   subscriptionPricePeriod: {
     fontSize: 14,
@@ -1002,6 +1030,15 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     marginTop: spacing.sm
   },
+  subscriptionOptionActive: {
+    borderColor: '#DCEAFF',
+    backgroundColor: '#F7FAFF',
+    shadowColor: 'rgba(0,0,0,0.04)',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 1,
+    shadowRadius: 12,
+    elevation: 2
+  },
   subscriptionOptionTitle: {
     fontSize: 16,
     fontWeight: '700',
@@ -1012,6 +1049,9 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     lineHeight: 20
   },
+  subscriptionButton: {
+    marginTop: spacing.xs
+  },
   subscriptionUnavailable: {
     fontSize: 14,
     color: colors.textSecondary,
@@ -1019,10 +1059,10 @@ const styles = StyleSheet.create({
   },
   subscriptionSummaryCard: {
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: '#DCEAFF',
     borderRadius: spacing.lg,
     padding: spacing.md,
-    backgroundColor: colors.glassSurface,
+    backgroundColor: '#F5F8FF',
     marginTop: spacing.sm,
     gap: spacing.xs
   },
@@ -1043,25 +1083,36 @@ const styles = StyleSheet.create({
     color: colors.textPrimary
   },
   subscriptionSummaryPrice: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.textPrimary
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.primary
   },
   subscriptionSummaryNextBilling: {
     fontSize: 13,
     color: colors.textSecondary
   },
   subscriptionManagement: {
-    marginTop: spacing.md,
+    marginTop: spacing.md
+  },
+  subscriptionManagementCard: {
+    borderRadius: spacing.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
     gap: spacing.sm
   },
   managementButton: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs,
-    paddingVertical: spacing.xs,
-    borderBottomWidth: 1,
+    paddingVertical: spacing.sm,
+    borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.border
+  },
+  managementButtonLast: {
+    borderBottomWidth: 0
   },
   managementButtonText: {
     fontSize: 14,
@@ -1189,7 +1240,7 @@ const styles = StyleSheet.create({
     fontWeight: '600'
   },
   subscriptionLegal: {
-    fontSize: 12,
+    fontSize: 11,
     color: colors.textSecondary,
     lineHeight: 18
   },
@@ -1215,10 +1266,10 @@ const styles = StyleSheet.create({
     padding: spacing.sm,
     borderRadius: spacing.lg,
     backgroundColor: colors.surface,
-    shadowColor: 'rgba(15,23,42,0.15)',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
+    shadowColor: 'rgba(0,0,0,0.04)',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 1,
+    shadowRadius: 12,
     elevation: 2
   },
   loadingWrapper: {
@@ -1236,9 +1287,13 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: spacing.md
   },
+  profileSummary: {
+    flex: 1,
+    gap: spacing.xs / 2
+  },
   profileLabel: {
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 12,
+    fontWeight: '500',
     color: colors.textSecondary,
     textTransform: 'uppercase',
     letterSpacing: 0.8
@@ -1250,44 +1305,52 @@ const styles = StyleSheet.create({
     marginTop: spacing.xs / 2
   },
   profileCompany: {
-    fontSize: 15,
-    color: colors.textSecondary,
+    fontSize: 16,
+    color: colors.textPrimary,
+    fontWeight: '600',
     marginTop: 2
   },
   editChip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs / 2,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
-    borderRadius: spacing.md,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs / 2,
+    borderRadius: spacing.sm,
     backgroundColor: colors.primaryMuted,
-    borderWidth: 1,
+    borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.primary
   },
   editChipText: {
     color: colors.primary,
     fontWeight: '600',
-    fontSize: 13
+    fontSize: 12
   },
-  profileDetails: {
+  profileGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: spacing.md
+    marginHorizontal: -spacing.xs
   },
-  detailBlock: {
-    flex: 1,
-    minWidth: 160,
+  detailCard: {
+    width: '48%',
+    flexGrow: 1,
+    borderRadius: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.glassSurface,
+    padding: spacing.sm,
+    marginHorizontal: spacing.xs,
+    marginTop: spacing.xs,
     gap: spacing.xs / 2
   },
   detailLabel: {
-    fontSize: 12,
-    fontWeight: '600',
+    fontSize: 11,
+    fontWeight: '500',
     color: colors.textSecondary,
     textTransform: 'uppercase'
   },
   detailValue: {
-    fontSize: 16,
+    fontSize: 15,
     color: colors.textPrimary,
     fontWeight: '600'
   },
@@ -1379,7 +1442,7 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     borderWidth: 1,
     borderColor: colors.border,
-    shadowColor: 'rgba(15,23,42,0.15)',
+    shadowColor: 'rgba(0,0,0,0.08)',
     shadowOffset: { width: 0, height: -4 },
     shadowOpacity: 1,
     shadowRadius: 16

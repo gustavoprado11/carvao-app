@@ -55,11 +55,11 @@ const styles = StyleSheet.create({
   },
   activeSegment: {
     backgroundColor: colors.surface,
-    shadowColor: 'rgba(15,23,42,0.2)',
-    shadowOffset: { width: 0, height: 4 },
+    shadowColor: 'rgba(0,0,0,0.08)',
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 1,
-    shadowRadius: 8,
-    elevation: 2
+    shadowRadius: 6,
+    elevation: 1
   },
   label: {
     fontSize: 16,

@@ -1,17 +1,23 @@
 import React from 'react';
-import { StyleSheet, TextInput, TextInputProps, View } from 'react-native';
+import { StyleSheet, TextInput, TextInputProps, View, StyleProp, ViewStyle, TextStyle } from 'react-native';
 import { colors, spacing } from '../theme';
 
 type Props = TextInputProps & {
   leading?: React.ReactNode;
   trailing?: React.ReactNode;
+  containerStyle?: StyleProp<ViewStyle>;
+  inputStyle?: StyleProp<TextStyle>;
 };
 
-export const TextField: React.FC<Props> = ({ leading, trailing, style, ...props }) => {
+export const TextField: React.FC<Props> = ({ leading, trailing, style, containerStyle, inputStyle, ...props }) => {
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, containerStyle]}>
       {leading ? <View style={styles.accessory}>{leading}</View> : null}
-      <TextInput placeholderTextColor={colors.textSecondary} style={[styles.input, style]} {...props} />
+      <TextInput
+        placeholderTextColor={colors.textSecondary}
+        style={[styles.input, style, inputStyle]}
+        {...props}
+      />
       {trailing ? <View style={styles.accessory}>{trailing}</View> : null}
     </View>
   );

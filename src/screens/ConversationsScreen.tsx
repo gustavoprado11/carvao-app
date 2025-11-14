@@ -61,39 +61,28 @@ const ConversationCard: React.FC<{
   supplyDensity?: string;
   supplyVolume?: string;
 }> = ({ item, counterpartName, onPress, unread, supplyAudienceLabel, supplyDensity, supplyVolume }) => {
-  const initials = useMemo(() => {
-    const parts = counterpartName
-      .split(' ')
-      .filter(Boolean)
-      .slice(0, 2);
-    if (parts.length === 0) {
-      return 'CC';
-    }
-    return parts.map(part => part[0]?.toUpperCase() ?? '').join('');
-  }, [counterpartName]);
+  const lastMessagePreview = item.lastMessage?.trim() || 'Envie uma mensagem para começar.';
+  const timestampLabel = formatTimestamp(item.lastMessageAt);
 
   return (
     <Pressable onPress={onPress} style={styles.card}>
-      <View style={styles.avatar}>
-        <Text style={styles.avatarText}>{initials}</Text>
-      </View>
       <View style={styles.cardContent}>
         <View style={styles.headerRow}>
           <Text style={styles.cardTitle} numberOfLines={1} ellipsizeMode="tail">
             {counterpartName}
           </Text>
-          <View style={styles.metaColumn}>
-            <Text style={styles.time}>{formatTimestamp(item.lastMessageAt)}</Text>
-            {unread ? (
-              <View style={styles.unreadBadge}>
-                <Text style={styles.unreadBadgeText}>1</Text>
-              </View>
-            ) : null}
-          </View>
+          {unread ? (
+            <View style={styles.unreadBadge}>
+              <Text style={styles.unreadBadgeText}>1</Text>
+            </View>
+          ) : null}
         </View>
-        <Text numberOfLines={2} style={styles.lastMessage}>
-          {item.lastMessage}
-        </Text>
+        <View style={styles.lastMessageRow}>
+          <Text numberOfLines={1} style={styles.lastMessage}>
+            {lastMessagePreview}
+          </Text>
+          <Text style={styles.time}>{timestampLabel}</Text>
+        </View>
         {supplyAudienceLabel || supplyDensity || supplyVolume ? (
           <View style={styles.supplyInfoContainer}>
             <View style={styles.supplyInfoMeta}>
@@ -132,7 +121,7 @@ export const ConversationsScreen: React.FC = () => {
 
   const isSupplier = profile.type === 'supplier';
   const isSubscriptionActive = Boolean(activeReceipt);
-  const shouldShowSubscriptionGate = isSupplier && !isSubscriptionActive;
+  const shouldShowSubscriptionGate = isSupplier && !isSubscriptionActive && !__DEV__;
 
   const loadConversations = useCallback(async (options?: { silent?: boolean }) => {
     const silent = options?.silent ?? false;
@@ -548,16 +537,16 @@ const styles = StyleSheet.create({
   subscriptionGateCard: {
     width: '100%',
     backgroundColor: colors.surface,
-    borderRadius: spacing.xxl,
+    borderRadius: spacing.lg,
     padding: spacing.xl,
     gap: spacing.lg,
     borderWidth: 1,
     borderColor: colors.border,
-    shadowColor: 'rgba(15,23,42,0.12)',
-    shadowOffset: { width: 0, height: 18 },
+    shadowColor: 'rgba(0,0,0,0.04)',
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 1,
-    shadowRadius: 28,
-    elevation: 6
+    shadowRadius: 12,
+    elevation: 3
   },
   subscriptionGateIcon: {
     width: 64,
@@ -606,33 +595,15 @@ const styles = StyleSheet.create({
   },
   card: {
     backgroundColor: colors.surface,
-    borderRadius: spacing.xxl,
+    borderRadius: spacing.lg,
     padding: spacing.lg,
     borderWidth: 1,
     borderColor: colors.border,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    shadowColor: 'rgba(15,23,42,0.08)',
-    shadowOffset: { width: 0, height: 12 },
+    shadowColor: 'rgba(0,0,0,0.04)',
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 1,
-    shadowRadius: 20,
-    elevation: 4
-  },
-  avatar: {
-    width: 54,
-    height: 54,
-    borderRadius: 18,
-    backgroundColor: colors.primaryMuted,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: colors.border
-  },
-  avatarText: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: colors.primary
+    shadowRadius: 12,
+    elevation: 3
   },
   cardContent: {
     flex: 1,
@@ -641,12 +612,8 @@ const styles = StyleSheet.create({
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between'
-  },
-  metaColumn: {
-    alignItems: 'flex-end',
-    gap: spacing.xs / 2,
-    marginLeft: spacing.sm
+    justifyContent: 'space-between',
+    gap: spacing.sm
   },
   cardTitle: {
     fontSize: 18,
@@ -654,14 +621,19 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     flex: 1
   },
+  lastMessageRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm
+  },
   time: {
-    fontSize: 13,
+    fontSize: 12,
     color: colors.textSecondary
   },
   lastMessage: {
-    fontSize: 15,
-    color: colors.textSecondary,
-    lineHeight: 22
+    flex: 1,
+    fontSize: 13,
+    color: colors.textSecondary
   },
   supplyInfoContainer: {
     gap: spacing.xs / 2
@@ -700,7 +672,7 @@ const styles = StyleSheet.create({
   },
   emptyState: {
     backgroundColor: colors.surface,
-    borderRadius: spacing.xxl,
+    borderRadius: spacing.lg,
     padding: spacing.xl,
     gap: spacing.sm,
     alignItems: 'center',
@@ -732,11 +704,11 @@ const styles = StyleSheet.create({
     maxHeight: '90%',
     borderWidth: 1,
     borderColor: colors.border,
-    shadowColor: 'rgba(15,23,42,0.1)',
-    shadowOffset: { width: 0, height: 12 },
+    shadowColor: 'rgba(0,0,0,0.08)',
+    shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 1,
-    shadowRadius: 24,
-    elevation: 6
+    shadowRadius: 20,
+    elevation: 4
   },
   modalTitle: {
     fontSize: 20,

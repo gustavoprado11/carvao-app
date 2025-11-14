@@ -36,6 +36,19 @@ const schedulingOptions = [
   { label: 'Fila', value: 'fila' as const }
 ];
 
+const getInitials = (value?: string | null) => {
+  if (!value) {
+    return 'SC';
+  }
+  return value
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map(part => part.charAt(0).toUpperCase())
+    .join('');
+};
+
 export const TablesScreen: React.FC = () => {
   const { profile } = useProfile();
   const isSteelProfile = profile.type === 'steel';
@@ -62,8 +75,9 @@ export const TablesScreen: React.FC = () => {
   const [isCheckingConfirmation, setCheckingConfirmation] = useState(true);
   const [firstSetupModalVisible, setFirstSetupModalVisible] = useState(false);
   const [shouldAutoShowFirstPrompt, setShouldAutoShowFirstPrompt] = useState(true);
+  const [activeChatTable, setActiveChatTable] = useState<SupplierTablePreview | null>(null);
   const isSubscriptionActive = Boolean(activeReceipt);
-  const shouldShowSubscriptionGate = isSupplierProfile && !isSubscriptionActive;
+  const shouldShowSubscriptionGate = isSupplierProfile && !isSubscriptionActive && !__DEV__;
 
   const isFirstPublish = isSteelProfile && !table.id;
   const firstSetupSteps = [
@@ -85,6 +99,12 @@ export const TablesScreen: React.FC = () => {
       return {};
     });
   }, [supplierTables]);
+
+  useEffect(() => {
+    if (activeChatTable && !supplierTables.some(item => item.id === activeChatTable.id)) {
+      setActiveChatTable(null);
+    }
+  }, [supplierTables, activeChatTable]);
 
   useEffect(() => {
     const fetchConfirmationStatus = async () => {
@@ -163,12 +183,26 @@ export const TablesScreen: React.FC = () => {
     return 'Não informado';
   };
 
-  const toggleTable = (tableId: string) => {
-    setExpanded(prev => ({ ...prev, [tableId]: !prev[tableId] }));
+  const toggleTable = (table: SupplierTablePreview) => {
+    setExpanded(prev => {
+      const isCurrentlyExpanded = !!prev[table.id];
+      const nextState = { ...prev, [table.id]: !isCurrentlyExpanded };
+      setActiveChatTable(prevChat => {
+        if (!isCurrentlyExpanded) {
+          return table;
+        }
+        return prevChat?.id === table.id ? null : prevChat;
+      });
+      return nextState;
+    });
   };
 
   const handleNavigateToPlans = () => {
     navigation.navigate('Menu');
+  };
+
+  const handleOpenConversation = () => {
+    navigation.navigate('Conversas');
   };
 
   const handleSaveTable = async () => {
@@ -184,25 +218,38 @@ export const TablesScreen: React.FC = () => {
     }
   };
 
-  const renderReadOnlyRow = (row: TableRow) => (
-    <View key={row.id} style={styles.rowCardReadonly}>
-      <Text style={styles.fieldLabel}>Faixa de Densidade (kg/m³)</Text>
-      <Text style={styles.readOnlyValue}>
-        {row.densityMin || '—'} — {row.densityMax || '—'}
-      </Text>
-      <View style={styles.fieldGroup}>
-        <View style={styles.fieldBlock}>
-          <Text style={styles.fieldLabel}>Preço PF (R$)</Text>
-          <Text style={styles.readOnlyValue}>{row.pricePF || '—'}</Text>
+  const renderReadOnlyRow = (row: TableRow, index: number) => (
+    <View key={row.id} style={[styles.rowCardReadonly, index > 0 && styles.rowCardSpacing]}>
+      <View style={styles.densityRowHeader}>
+        <View style={styles.densityTitleWrapper}>
+          <Ionicons name="speedometer-outline" size={16} color={colors.textSecondary} />
+          <View>
+            <Text style={styles.rowLabel}>Faixa de densidade</Text>
+            <Text style={styles.rowValue}>
+              {row.densityMin || '—'} — {row.densityMax || '—'}
+            </Text>
+          </View>
         </View>
-        <View style={styles.fieldBlock}>
-          <Text style={styles.fieldLabel}>Preço PJ (R$)</Text>
-          <Text style={styles.readOnlyValue}>{row.pricePJ || '—'}</Text>
+        <Text style={styles.densityUnit}>kg/m³</Text>
+      </View>
+      <View style={styles.priceRow}>
+        <View style={styles.priceColumn}>
+          <Text style={styles.rowLabel}>Preço PF</Text>
+          <Text style={styles.priceValue}>{row.pricePF || '—'}</Text>
+          <Text style={styles.priceNote}>R$</Text>
+        </View>
+        <View style={styles.priceColumn}>
+          <Text style={styles.rowLabel}>Preço PJ</Text>
+          <Text style={styles.priceValue}>{row.pricePJ || '—'}</Text>
+          <Text style={styles.priceNote}>R$</Text>
         </View>
       </View>
-      <View style={styles.fieldBlock}>
-        <Text style={styles.fieldLabel}>Unidade de Pagamento</Text>
-        <Text style={styles.readOnlyValue}>{unitLabel(row.unit)}</Text>
+      <View style={styles.unitRow}>
+        <View style={styles.unitLabelWrapper}>
+          <Ionicons name="scale-outline" size={14} color={colors.textSecondary} />
+          <Text style={styles.unitRowLabel}>Unidade de pagamento</Text>
+        </View>
+        <Text style={styles.unitRowValue}>{unitLabel(row.unit)}</Text>
       </View>
     </View>
   );
@@ -397,43 +444,50 @@ export const TablesScreen: React.FC = () => {
 
         {supplierTables.map((item: SupplierTablePreview) => {
           const isExpanded = !!expanded[item.id];
+          const initials = getInitials(item.company);
           return (
             <View key={item.id} style={styles.supplierCard}>
-              <TouchableOpacity style={styles.supplierHeader} onPress={() => toggleTable(item.id)} activeOpacity={0.9}>
+              <TouchableOpacity style={styles.supplierHeader} onPress={() => toggleTable(item)} activeOpacity={0.9}>
                 <View style={styles.supplierTitleBlock}>
-                  <Text style={styles.cardTitle} numberOfLines={1} ellipsizeMode="tail">{item.company}</Text>
-                  <Text style={styles.cardSubtitle} numberOfLines={1} ellipsizeMode="tail">{item.location}</Text>
+                  <Text style={styles.cardTitle} numberOfLines={1} ellipsizeMode="tail">
+                    {item.company}
+                  </Text>
+                  <Text style={styles.cardSubtitle} numberOfLines={1} ellipsizeMode="tail">
+                    {item.location}
+                  </Text>
                   <View style={styles.supplierMeta}>
-                    <Text style={styles.updatedText}>{item.updatedAt}</Text>
-                    <Ionicons
-                      name={isExpanded ? 'chevron-up' : 'chevron-down'}
-                      size={18}
-                      color={colors.textSecondary}
-                    />
+                    <View style={styles.updatedBadge}>
+                      <Ionicons name="time-outline" size={14} color={colors.textSecondary} />
+                      <Text style={styles.updatedText}>{item.updatedAt}</Text>
+                    </View>
+                    <Ionicons name="analytics-outline" size={16} color={colors.textSecondary} />
                   </View>
+                </View>
+                <View style={styles.expandIndicator}>
+                  <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={18} color={colors.textSecondary} />
                 </View>
               </TouchableOpacity>
               {isExpanded ? (
                 <View style={styles.supplierBody}>
-                  <View style={styles.metaInfoBox}>
-                    <View style={styles.metaInfoRow}>
-                      <Text style={styles.infoLabel}>Forma de pagamento</Text>
+                  <View style={styles.metaInfoGrid}>
+                    <View style={styles.metaInfoCard}>
+                      <Text style={styles.infoLabel} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
+                        Forma de pagamento
+                      </Text>
                       <Text style={styles.infoValue}>{item.paymentTerms?.trim() || 'Não informado'}</Text>
                     </View>
-                    <View style={styles.metaInfoRow}>
-                      <Text style={styles.infoLabel}>Agendamento ou fila</Text>
+                    <View style={styles.metaInfoCard}>
+                      <Text style={styles.infoLabel} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
+                        Agendamento ou fila
+                      </Text>
                       <Text style={styles.infoValue}>{formatScheduleLabel(item.scheduleType)}</Text>
                     </View>
                   </View>
-                  {item.rows.map(renderReadOnlyRow)}
+                  {item.rows.map((row, index) => renderReadOnlyRow(row, index))}
                   <View style={styles.notesBox}>
                     <Text style={styles.sectionTitle}>Observações</Text>
-                    <Text style={styles.notesText}>{item.notes}</Text>
+                    <Text style={styles.notesText}>{item.notes?.trim() || 'Nenhuma observação adicional.'}</Text>
                   </View>
-                  <PrimaryButton
-                    label="Conversar com esta siderúrgica"
-                    onPress={() => navigation.navigate('Conversas')}
-                  />
                 </View>
               ) : null}
             </View>
@@ -485,8 +539,20 @@ export const TablesScreen: React.FC = () => {
       <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           {isSteelProfile ? renderSteelView() : renderSupplierView()}
+          {!isSteelProfile && activeChatTable ? <View style={styles.stickySpacer} /> : null}
         </ScrollView>
       </SafeAreaView>
+      {!isSteelProfile && activeChatTable ? (
+        <View style={styles.stickyChatBar}>
+          <View style={styles.stickyChatInfo}>
+            <Text style={styles.stickyChatLabel}>Conversar com</Text>
+            <Text style={styles.stickyChatTitle} numberOfLines={1}>
+              {activeChatTable.company}
+            </Text>
+          </View>
+          <PrimaryButton label="Abrir conversa" onPress={handleOpenConversation} style={styles.stickyChatButton} />
+        </View>
+      ) : null}
       <Modal
         visible={firstSetupModalVisible}
         transparent
@@ -542,16 +608,16 @@ const styles = StyleSheet.create({
   subscriptionGateCard: {
     width: '100%',
     backgroundColor: colors.surface,
-    borderRadius: spacing.xxl,
+    borderRadius: spacing.lg,
     padding: spacing.xl,
     gap: spacing.lg,
     borderWidth: 1,
     borderColor: colors.border,
-    shadowColor: 'rgba(15,23,42,0.12)',
-    shadowOffset: { width: 0, height: 18 },
+    shadowColor: 'rgba(0,0,0,0.04)',
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 1,
-    shadowRadius: 28,
-    elevation: 6
+    shadowRadius: 12,
+    elevation: 3
   },
   subscriptionGateIcon: {
     width: 64,
@@ -589,11 +655,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     gap: spacing.sm,
-    shadowColor: 'rgba(15,23,42,0.1)',
-    shadowOffset: { width: 0, height: 10 },
+    shadowColor: 'rgba(0,0,0,0.04)',
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 1,
-    shadowRadius: 20,
-    elevation: 2
+    shadowRadius: 12,
+    elevation: 3
   },
   firstPublishTitle: {
     fontSize: 16,
@@ -705,7 +771,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
-    borderRadius: spacing.md,
+    borderRadius: spacing.sm,
     borderWidth: 1,
     borderColor: colors.primary,
     backgroundColor: colors.primaryMuted,
@@ -717,7 +783,7 @@ const styles = StyleSheet.create({
     fontSize: 13
   },
   rowCard: {
-    borderRadius: spacing.md,
+    borderRadius: spacing.sm,
     borderWidth: 1,
     borderColor: colors.border,
     padding: spacing.md,
@@ -730,7 +796,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between'
   },
   fieldLabel: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '600',
     color: colors.textSecondary,
     textTransform: 'uppercase',
@@ -871,24 +937,26 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     overflow: 'hidden',
-    shadowColor: 'rgba(15,23,42,0.1)',
-    shadowOffset: { width: 0, height: 10 },
+    shadowColor: 'rgba(0,0,0,0.04)',
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 1,
-    shadowRadius: 24,
-    elevation: 2
+    shadowRadius: 12,
+    elevation: 3
   },
   supplierHeader: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
-    backgroundColor: colors.primaryMuted
+    backgroundColor: colors.primaryMuted,
+    borderTopLeftRadius: spacing.lg,
+    borderTopRightRadius: spacing.lg
   },
   supplierTitleBlock: {
     flex: 1,
-    paddingRight: spacing.md,
-    gap: spacing.xs / 2
+    gap: spacing.xs / 2,
+    paddingRight: spacing.md
   },
   cardTitle: {
     fontSize: 18,
@@ -906,7 +974,7 @@ const styles = StyleSheet.create({
   supplierMeta: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.xs,
+    gap: spacing.sm,
     marginTop: spacing.xs / 2
   },
   updatedText: {
@@ -914,30 +982,58 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     fontWeight: '600'
   },
+  updatedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs / 2,
+    backgroundColor: 'rgba(148,163,184,0.25)',
+    borderRadius: spacing.md,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs / 2
+  },
+  expandIndicator: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.primaryMuted,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
   supplierBody: {
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
-    gap: spacing.md
+    gap: spacing.md,
+    backgroundColor: colors.surface,
+    borderTopWidth: 1,
+    borderTopColor: colors.border
   },
-  metaInfoBox: {
-    borderRadius: spacing.md,
+  metaInfoGrid: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    flexWrap: 'wrap'
+  },
+  metaInfoCard: {
+    flex: 1,
+    borderRadius: spacing.lg,
     borderWidth: 1,
     borderColor: colors.border,
     padding: spacing.md,
-    gap: spacing.sm,
-    backgroundColor: colors.surface
-  },
-  metaInfoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between'
+    backgroundColor: colors.surface,
+    shadowColor: 'rgba(0,0,0,0.04)',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 1,
+    shadowRadius: 12,
+    elevation: 2,
+    gap: spacing.xs / 2
   },
   infoLabel: {
-    fontSize: 13,
+    fontSize: 11,
     fontWeight: '600',
     color: colors.textSecondary,
     textTransform: 'uppercase',
-    letterSpacing: 0.6
+    letterSpacing: 0.4
   },
   infoValue: {
     fontSize: 15,
@@ -945,15 +1041,93 @@ const styles = StyleSheet.create({
     fontWeight: '600'
   },
   rowCardReadonly: {
-    borderRadius: spacing.md,
+    borderRadius: spacing.sm,
     borderWidth: 1,
     borderColor: colors.border,
     padding: spacing.md,
-    gap: spacing.sm,
-    backgroundColor: colors.surface
+    gap: spacing.md,
+    backgroundColor: colors.surface,
+    shadowColor: 'rgba(0,0,0,0.04)',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 1,
+    shadowRadius: 12,
+    elevation: 2
+  },
+  rowCardSpacing: {
+    marginTop: spacing.sm
+  },
+  densityRowHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between'
+  },
+  densityTitleWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm
+  },
+  rowLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.4
+  },
+  rowValue: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: colors.textPrimary
+  },
+  densityUnit: {
+    fontSize: 12,
+    color: colors.textSecondary
+  },
+  fieldGroupCompact: {
+    flexDirection: 'row',
+    gap: spacing.md
+  },
+  priceRow: {
+    flexDirection: 'row',
+    gap: spacing.md
+  },
+  priceColumn: {
+    flex: 1,
+    gap: spacing.xs / 2
+  },
+  priceValue: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: colors.textPrimary
+  },
+  priceNote: {
+    fontSize: 12,
+    color: colors.textSecondary
+  },
+  unitRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingVertical: spacing.xs
+  },
+  unitLabelWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs
+  },
+  unitRowLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textSecondary,
+    textTransform: 'uppercase'
+  },
+  unitRowValue: {
+    marginLeft: 'auto',
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.textPrimary
   },
   notesBox: {
-    borderRadius: spacing.md,
+    borderRadius: spacing.sm,
     backgroundColor: colors.primaryMuted,
     padding: spacing.md,
     gap: spacing.xs
@@ -990,5 +1164,46 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: colors.textSecondary,
     lineHeight: 20
+  },
+  stickyChatBar: {
+    position: 'absolute',
+    left: spacing.xxl,
+    right: spacing.xxl,
+    bottom: spacing.lg,
+    backgroundColor: colors.surface,
+    borderRadius: spacing.lg,
+    padding: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    shadowColor: 'rgba(0,0,0,0.08)',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 1,
+    shadowRadius: 20,
+    elevation: 4
+  },
+  stickyChatInfo: {
+    flex: 1,
+    gap: spacing.xs / 2
+  },
+  stickyChatLabel: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    fontWeight: '600',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase'
+  },
+  stickyChatTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.textPrimary
+  },
+  stickyChatButton: {
+    flex: 1
+  },
+  stickySpacer: {
+    height: spacing.xxxl * 1.2
   }
 });

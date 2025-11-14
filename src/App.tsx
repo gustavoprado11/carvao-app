@@ -463,15 +463,15 @@ const styles = StyleSheet.create({
   },
   resetCard: {
     backgroundColor: colors.surface,
-    borderRadius: spacing.xl,
+    borderRadius: spacing.lg,
     padding: spacing.lg,
     gap: spacing.sm,
     borderWidth: 1,
     borderColor: colors.border,
-    shadowColor: 'rgba(15,23,42,0.12)',
-    shadowOffset: { width: 0, height: 12 },
+    shadowColor: 'rgba(0,0,0,0.08)',
+    shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 1,
-    shadowRadius: 20,
+    shadowRadius: 16,
     elevation: 4
   },
   resetTitle: {

@@ -115,16 +115,16 @@ const styles = StyleSheet.create({
   },
   card: {
     backgroundColor: colors.surface,
-    borderRadius: spacing.xxl,
+    borderRadius: spacing.lg,
     padding: spacing.lg,
     gap: spacing.md,
     borderWidth: 1,
     borderColor: colors.border,
-    shadowColor: 'rgba(15,23,42,0.12)',
+    shadowColor: 'rgba(0,0,0,0.04)',
     shadowOpacity: 1,
-    shadowRadius: 24,
-    shadowOffset: { width: 0, height: 16 },
-    elevation: 4
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3
   },
   sectionTitle: {
     fontSize: 17,

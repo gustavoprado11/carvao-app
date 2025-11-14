@@ -414,18 +414,18 @@ const styles = StyleSheet.create({
   },
   card: {
     backgroundColor: colors.surface,
-    borderRadius: spacing.xxl,
+    borderRadius: spacing.lg,
     padding: spacing.xxl,
     gap: spacing.lg,
     width: '100%',
     maxWidth: 480,
     borderWidth: 1,
     borderColor: colors.border,
-    shadowColor: 'rgba(15,23,42,0.12)',
-    shadowOffset: { width: 0, height: 16 },
+    shadowColor: 'rgba(0,0,0,0.04)',
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 1,
-    shadowRadius: 32,
-    elevation: 6
+    shadowRadius: 12,
+    elevation: 3
   },
   segmentedWrapper: {
     width: '100%'

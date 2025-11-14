@@ -47,6 +47,18 @@ const formatTimestamp = (value: string) => {
   return timestamp.toLocaleDateString('pt-BR');
 };
 
+const formatDateHeading = (value: string) => {
+  const timestamp = new Date(value);
+  if (Number.isNaN(timestamp.getTime())) {
+    return '';
+  }
+  return timestamp.toLocaleDateString('pt-BR', {
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric'
+  });
+};
+
 const MessageBubble: React.FC<{ message: ConversationMessage; isOwn: boolean }> = ({ message, isOwn }) => (
   <View
     style={[
@@ -56,7 +68,9 @@ const MessageBubble: React.FC<{ message: ConversationMessage; isOwn: boolean }> 
     ]}
   >
     <Text style={[styles.messageText, isOwn ? styles.messageTextOwn : null]}>{message.body}</Text>
-    <Text style={styles.messageTimestamp}>{formatTimestamp(message.sentAt)}</Text>
+    <Text style={[styles.messageTimestamp, isOwn ? styles.messageTimestampOwn : null]}>
+      {formatTimestamp(message.sentAt)}
+    </Text>
   </View>
 );
 
@@ -157,6 +171,18 @@ Os principais documentos são:
     }
     return null;
   }, [profile.type, profile.email]);
+
+  const quickReplyIcons: Record<string, keyof typeof Ionicons.glyphMap> = useMemo(
+    () => ({
+      'offer-accepted': 'checkmark-done-outline',
+      documentation: 'document-text-outline',
+      support: 'chatbubble-ellipses-outline',
+      pitch: 'megaphone-outline',
+      visit: 'compass-outline',
+      quote: 'pricetag-outline'
+    }),
+    []
+  );
 
   const storageKey = useMemo(() => {
     if (!profile.email) {
@@ -276,6 +302,27 @@ Os principais documentos são:
     closeQuickReplyModal();
   }, [quickReplyDraft, closeQuickReplyModal, sendMessageBody, shouldSaveTemplate, selectedQuickReply, persistTemplates]);
 
+  const timelineItems = useMemo(() => {
+    const items: Array<
+      | { type: 'date'; id: string; label: string }
+      | { type: 'message'; id: string; payload: ConversationMessage }
+    > = [];
+    let lastDateKey: string | null = null;
+    messages.forEach(message => {
+      const dateKey = new Date(message.sentAt).toDateString();
+      if (dateKey !== lastDateKey) {
+        lastDateKey = dateKey;
+        items.push({
+          type: 'date',
+          id: `date-${dateKey}-${message.id}`,
+          label: formatDateHeading(message.sentAt)
+        });
+      }
+      items.push({ type: 'message', id: message.id, payload: message });
+    });
+    return items;
+  }, [messages]);
+
   return (
     <View style={styles.root}>
       <LinearGradient
@@ -304,14 +351,20 @@ Os principais documentos são:
                 showsVerticalScrollIndicator={false}
                 onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}
               >
-                {messages.length > 0 ? (
-                  messages.map(message => (
-                    <MessageBubble
-                      key={message.id}
-                      message={message}
-                      isOwn={message.senderEmail === profile.email}
-                    />
-                  ))
+                {timelineItems.length > 0 ? (
+                  timelineItems.map(item =>
+                    item.type === 'date' ? (
+                      <View key={item.id} style={styles.dateDivider}>
+                        <Text style={styles.dateDividerText}>{item.label}</Text>
+                      </View>
+                    ) : (
+                      <MessageBubble
+                        key={item.id}
+                        message={item.payload}
+                        isOwn={item.payload.senderEmail === profile.email}
+                      />
+                    )
+                  )
                 ) : (
                   <View style={styles.emptyState}>
                     <Text style={styles.emptyTitle}>Sem mensagens</Text>
@@ -330,23 +383,41 @@ Os principais documentos são:
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.quickReplyList}
               >
-                {quickReplyConfig.options.map(option => (
-                  <TouchableOpacity
-                    key={option.id}
-                    style={[
-                      styles.quickReplyOption,
-                      quickReplyConfig.tone === 'supplier' ? styles.quickReplyOptionSupplier : styles.quickReplyOptionSteel,
-                      isSending ? styles.quickReplyOptionDisabled : null
-                    ]}
-                    disabled={isSending}
-                    onPress={() => handleQuickReplyPress(option)}
-                  >
-                    <Text style={styles.quickReplyOptionTitle}>{option.title}</Text>
-                    <Text style={styles.quickReplyOptionSubtitle} numberOfLines={1}>
-                      {option.subtitle}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
+                {quickReplyConfig.options.map(option => {
+                  const iconName =
+                    quickReplyIcons[option.id] ??
+                    (quickReplyConfig.tone === 'supplier' ? 'leaf-outline' : 'document-text-outline');
+                  return (
+                    <TouchableOpacity
+                      key={option.id}
+                      style={[
+                        styles.quickReplyOption,
+                        quickReplyConfig.tone === 'supplier'
+                          ? styles.quickReplyOptionSupplier
+                          : styles.quickReplyOptionSteel,
+                        isSending ? styles.quickReplyOptionDisabled : null
+                      ]}
+                      disabled={isSending}
+                      onPress={() => handleQuickReplyPress(option)}
+                    >
+                        <View style={styles.quickReplyOptionContent}>
+                          <View style={styles.quickReplyIcon}>
+                            <Ionicons
+                              name={iconName}
+                              size={16}
+                              color="rgba(15,23,42,0.6)"
+                            />
+                          </View>
+                        <View style={styles.quickReplyText}>
+                          <Text style={styles.quickReplyOptionTitle}>{option.title}</Text>
+                          <Text style={styles.quickReplyOptionSubtitle} numberOfLines={1}>
+                            {option.subtitle}
+                          </Text>
+                        </View>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
               </ScrollView>
             </View>
           ) : null}
@@ -358,6 +429,7 @@ Os principais documentos são:
               onChangeText={setMessageDraft}
               multiline
               style={styles.composerInput}
+              containerStyle={styles.composerInputContainer}
               autoCapitalize="sentences"
               autoCorrect
               trailing={
@@ -365,15 +437,18 @@ Os principais documentos são:
                   accessibilityRole="button"
                   onPress={handleSendMessage}
                   disabled={!messageDraft.trim() || isSending}
-                  style={[styles.sendButton, (!messageDraft.trim() || isSending) && styles.sendButtonDisabled]}
+                  style={[
+                    styles.sendButton,
+                    !messageDraft.trim() || isSending ? styles.sendButtonDisabled : styles.sendButtonReady
+                  ]}
                 >
-                  {isSending ? (
-                    <ActivityIndicator size="small" color={colors.surface} />
+                    {isSending ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
                   ) : (
                     <Ionicons
                       name="send"
                       size={20}
-                      color={!messageDraft.trim() ? colors.textSecondary : colors.surface}
+                      color={!messageDraft.trim() ? colors.textSecondary : '#FFFFFF'}
                     />
                   )}
                 </TouchableOpacity>
@@ -453,20 +528,29 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.lg,
+    paddingTop: spacing.sm,
     paddingBottom: spacing.xl,
     gap: spacing.md
   },
   messagesWrapper: {
     flex: 1,
-    backgroundColor: 'rgba(255,255,255,0.9)',
+    backgroundColor: 'rgba(255,255,255,0.95)',
     borderRadius: spacing.xl,
-    padding: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.xs,
+    paddingBottom: spacing.sm,
     borderWidth: 1,
-    borderColor: 'rgba(148,163,184,0.4)'
+    borderColor: colors.border,
+    shadowColor: 'rgba(0,0,0,0.04)',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 1,
+    shadowRadius: 12,
+    elevation: 2
   },
   messagesContent: {
-    gap: spacing.sm
+    gap: spacing.sm,
+    paddingBottom: spacing.xxl,
+    paddingTop: spacing.sm
   },
   quickReplySection: {
     gap: spacing.xs
@@ -483,23 +567,40 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xs
   },
   quickReplyOption: {
-    minWidth: 140,
-    maxWidth: 220,
+    minWidth: 200,
+    maxWidth: 260,
     borderRadius: spacing.lg,
-    paddingVertical: spacing.xs,
-    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs / 2,
+    paddingHorizontal: spacing.lg,
     borderWidth: 1,
     marginRight: spacing.sm,
-    borderColor: 'rgba(148,163,184,0.4)'
+    borderColor: 'rgba(148,163,184,0.3)'
   },
   quickReplyOptionSteel: {
-    backgroundColor: 'rgba(59,130,246,0.08)'
+    backgroundColor: 'rgba(59,130,246,0.12)'
   },
   quickReplyOptionSupplier: {
-    backgroundColor: 'rgba(16,185,129,0.12)'
+    backgroundColor: 'rgba(16,185,129,0.15)'
   },
   quickReplyOptionDisabled: {
     opacity: 0.6
+  },
+  quickReplyOptionContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md
+  },
+  quickReplyIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.7)',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  quickReplyText: {
+    flex: 1,
+    gap: spacing.xs / 2
   },
   quickReplyOptionTitle: {
     fontSize: 14,
@@ -507,7 +608,7 @@ const styles = StyleSheet.create({
     color: colors.textPrimary
   },
   quickReplyOptionSubtitle: {
-    fontSize: 12,
+    fontSize: 11,
     color: colors.textSecondary
   },
   quickReplyModalBackdrop: {
@@ -530,11 +631,11 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     borderWidth: 1,
     borderColor: colors.border,
-    shadowColor: 'rgba(15,23,42,0.12)',
-    shadowOffset: { width: 0, height: 16 },
+    shadowColor: 'rgba(0,0,0,0.08)',
+    shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 1,
-    shadowRadius: 24,
-    elevation: 6
+    shadowRadius: 20,
+    elevation: 4
   },
   quickReplyModalTitle: {
     fontSize: 18,
@@ -594,14 +695,14 @@ const styles = StyleSheet.create({
   },
   messageBubble: {
     maxWidth: '80%',
-    padding: spacing.md,
-    borderRadius: spacing.xl,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderRadius: 22,
     gap: spacing.xs
   },
   messageBubbleOwn: {
-    backgroundColor: colors.primary,
-    borderWidth: 1,
-    borderColor: 'rgba(37,99,235,0.4)'
+    backgroundColor: '#017BFF',
+    borderWidth: 0
   },
   messageBubbleOwnAlign: {
     alignSelf: 'flex-end'
@@ -609,25 +710,57 @@ const styles = StyleSheet.create({
   messageBubbleGuest: {
     backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: colors.border
+    borderColor: colors.border,
+    shadowColor: 'rgba(0,0,0,0.02)',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 1,
+    shadowRadius: 6,
+    elevation: 1
   },
   messageBubbleGuestAlign: {
     alignSelf: 'flex-start'
   },
   messageText: {
     fontSize: 15,
-    color: colors.textPrimary
+    color: colors.textPrimary,
+    lineHeight: 22
   },
   messageTextOwn: {
     color: colors.surface
   },
   messageTimestamp: {
+    fontSize: 11,
+    color: 'rgba(15,23,42,0.45)'
+  },
+  messageTimestampOwn: {
+    color: 'rgba(255,255,255,0.85)'
+  },
+  dateDivider: {
+    alignSelf: 'center',
+    backgroundColor: 'rgba(15,23,42,0.06)',
+    borderRadius: spacing.lg,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs / 2
+  },
+  dateDividerText: {
     fontSize: 12,
-    color: colors.textPrimary
+    color: colors.textSecondary
   },
   composer: {
     paddingTop: spacing.xs,
     paddingBottom: spacing.md
+  },
+  composerInputContainer: {
+    borderRadius: spacing.xl,
+    borderColor: '#D0D8E8',
+    borderWidth: 1,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    shadowColor: 'rgba(0,0,0,0.05)',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 1,
+    shadowRadius: 12,
+    elevation: 2
   },
   composerInput: {
     minHeight: 48,
@@ -635,14 +768,16 @@ const styles = StyleSheet.create({
     textAlignVertical: 'top'
   },
   sendButton: {
-    backgroundColor: colors.primary,
-    borderRadius: spacing.lg,
+    borderRadius: spacing.xl,
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
     justifyContent: 'center',
     alignItems: 'center'
   },
+  sendButtonReady: {
+    backgroundColor: '#58A6FF'
+  },
   sendButtonDisabled: {
-    backgroundColor: 'rgba(148,163,184,0.6)'
+    backgroundColor: 'rgba(148,163,184,0.2)'
   }
 });
