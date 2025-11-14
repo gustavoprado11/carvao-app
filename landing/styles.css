@@ -378,6 +378,79 @@ footer {
   margin-bottom: 6px;
 }
 
+/* Confirmation/support pages */
+.page-support {
+  min-height: 100vh;
+  background: linear-gradient(180deg, #f8faff 0%, #eef2ff 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 16px;
+}
+
+.page-wrapper {
+  width: min(520px, 100%);
+  background: var(--bg-surface);
+  border-radius: 32px;
+  box-shadow: var(--shadow-soft);
+  padding: 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.page-header {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.page-logo {
+  width: 60px;
+  height: 60px;
+  border-radius: 16px;
+  box-shadow: 0 20px 40px rgba(37, 99, 235, 0.2);
+}
+
+.eyebrow {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--text-secondary);
+  margin: 0 0 6px;
+}
+
+.page-card {
+  border: 1px solid var(--border-soft);
+  border-radius: 28px;
+  padding: 24px;
+  display: grid;
+  gap: 14px;
+  color: var(--text-secondary);
+}
+
+.page-card p {
+  margin: 0;
+  line-height: 1.6;
+}
+
+.page-button {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  padding: 14px 20px;
+  border-radius: 999px;
+  background: var(--text-accent);
+  color: #fff;
+  text-decoration: none;
+  font-weight: 600;
+  box-shadow: 0 20px 36px rgba(37, 99, 235, 0.25);
+}
+
+.page-note {
+  font-size: 13px;
+}
+
 @media (max-width: 720px) {
   header {
     flex-direction: column;

@@ -354,7 +354,7 @@ export const ConversationsScreen: React.FC = () => {
     if (!isSupplier) {
       return [] as UserProfile[];
     }
-    return steelPartners;
+    return steelPartners.filter(partner => partner.status === 'approved');
   }, [isSupplier, steelPartners]);
 
   const handleNavigateToPlans = () => {

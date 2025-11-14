@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -10,7 +10,8 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
-  View
+  View,
+  RefreshControl
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -47,8 +48,8 @@ type ProfileFormState = {
 };
 
 export const MenuScreen: React.FC = () => {
-  const { profile, updateProfile, logout } = useProfile();
-  const { table, supplierTables, refreshSupplierTables, loading: tablesLoading } = useTable();
+  const { profile, updateProfile, logout, refreshProfile } = useProfile();
+  const { table, supplierTables, refreshSupplierTables, refreshTableData, loading: tablesLoading } = useTable();
   const {
     products: subscriptionProducts,
     loadingProducts: loadingSubscriptionProducts,
@@ -76,6 +77,7 @@ export const MenuScreen: React.FC = () => {
   const [helpCenterVisible, setHelpCenterVisible] = useState(false);
   const [redeemInProgress, setRedeemInProgress] = useState(false);
   const [showAllPlans, setShowAllPlans] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const appName = Constants?.expoConfig?.name ?? 'Carvão Connect';
   const insets = useSafeAreaInsets();
   const [form, setForm] = useState<ProfileFormState>({
@@ -145,6 +147,15 @@ export const MenuScreen: React.FC = () => {
       };
     });
   }, [isSupplierProfile, supplierTables]);
+
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([refreshProfile(), refreshTableData()]);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refreshProfile, refreshTableData]);
 
   const subscriptionPlanOptions = useMemo(() => {
     const options: Array<{
@@ -439,7 +450,12 @@ export const MenuScreen: React.FC = () => {
         end={{ x: 1, y: 1 }}
       />
       <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
+          alwaysBounceVertical
+        >
         <View style={styles.headerRow}>
           <View style={styles.header}>
             <Text style={styles.title}>Painel</Text>
@@ -585,6 +601,31 @@ export const MenuScreen: React.FC = () => {
           </View>
         ) : (
           <View style={styles.notificationSection}>
+            <View style={styles.notificationWrapper}>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>Atualizações das siderúrgicas</Text>
+              </View>
+              {tablesLoading ? (
+                <View style={styles.loadingWrapper}>
+                  <ActivityIndicator color={colors.primary} />
+                </View>
+              ) : supplierNotifications.length > 0 ? (
+                supplierNotifications.map(notification => (
+                  <View key={notification.id} style={styles.notificationEntry}>
+                    <Text style={styles.notificationMessage}>
+                      {notification.message}
+                    </Text>
+                  </View>
+                ))
+              ) : (
+                <View style={styles.emptyNotifications}>
+                  <Text style={styles.emptyTitle}>Sem novidades por enquanto</Text>
+                  <Text style={styles.emptyText}>
+                    As siderúrgicas que você acompanha aparecerão aqui quando houver ajuste de preços ou observações.
+                  </Text>
+                </View>
+              )}
+            </View>
             {isSupplierProfile ? (
               <View style={styles.subscriptionCard}>
                 <View style={styles.subscriptionHeader}>
@@ -741,34 +782,6 @@ export const MenuScreen: React.FC = () => {
                 )}
               </View>
             ) : null}
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Atualizações das siderúrgicas</Text>
-              <TouchableOpacity onPress={refreshSupplierTables} disabled={tablesLoading}>
-                <Text style={[styles.refreshText, tablesLoading && styles.refreshTextDisabled]}>
-                  {tablesLoading ? 'Atualizando...' : 'Atualizar'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-            {tablesLoading ? (
-              <View style={styles.loadingWrapper}>
-                <ActivityIndicator color={colors.primary} />
-              </View>
-            ) : supplierNotifications.length > 0 ? (
-              supplierNotifications.map(notification => (
-                <View key={notification.id} style={styles.notificationCard}>
-                  <Text numberOfLines={2} style={styles.notificationMessage}>
-                    {notification.message}
-                  </Text>
-                </View>
-              ))
-            ) : (
-              <View style={styles.emptyNotifications}>
-                <Text style={styles.emptyTitle}>Sem novidades por enquanto</Text>
-                <Text style={styles.emptyText}>
-                  As siderúrgicas que você acompanha aparecerão aqui quando houver ajuste de preços ou observações.
-                </Text>
-              </View>
-            )}
           </View>
         )}
       </ScrollView>
@@ -967,6 +980,15 @@ const styles = StyleSheet.create({
   },
   notificationSection: {
     gap: spacing.md
+  },
+  notificationWrapper: {
+    ...glassCard,
+    gap: spacing.sm
+  },
+  notificationEntry: {
+    paddingVertical: spacing.sm,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border
   },
   subscriptionCard: {
     ...glassCard,
@@ -1406,7 +1428,7 @@ const styles = StyleSheet.create({
   },
   notificationCard: {
     ...glassCard,
-    gap: spacing.sm
+    gap: spacing.md
   },
   notificationMessage: {
     fontSize: 15,

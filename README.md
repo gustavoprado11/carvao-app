@@ -22,6 +22,14 @@ Aplicativo móvel (Expo + React Native) que conecta fornecedores de carvão às 
 
 ## Segurança e operação
 
+### Confirmação de e-mail
+- Criamos `landing/confirmacao-email.html`, uma página simples que avisa o usuário que o e-mail foi confirmado e oferece um botão para voltar ao aplicativo (`carvaoconnect://app`).
+- Hospede essa página junto com o restante do site/landing (por exemplo, `https://carvaoconnect.com.br/confirmacao-email.html`).
+- No Supabase, acesse **Authentication → URL Configuration** e defina:
+  - `Site URL`: a URL pública onde o restante do site fica hospedado;
+  - `Redirect URLs`: inclua a URL de confirmação (`https://carvaoconnect.com.br/confirmacao-email.html`). Assim, ao tocar no link do e-mail, o usuário será levado a essa tela de sucesso em vez de uma página em branco.
+- Se desejar abrir o app diretamente após a confirmação, mantenha o botão de deep link (`carvaoconnect://app`) atualizado conforme o esquema configurado no Expo (`app.json` → `scheme`).
+
 ### Gestão de credenciais
 - O app consome apenas a `anon key` do Supabase em `src/lib/supabaseClient.ts`. Revise periodicamente o repositório para garantir que nenhuma `service_role` ou segredo sensível foi versionado (`rg "service_role" -n`).
 - Para builds EAS, registre as chaves como secrets:

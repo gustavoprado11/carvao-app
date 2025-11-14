@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActionSheetIOS,
   ActivityIndicator,
@@ -11,7 +11,8 @@ import {
   TextInput,
   TouchableOpacity,
   View,
-  Switch
+  Switch,
+  RefreshControl
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -66,6 +67,7 @@ export const TablesScreen: React.FC = () => {
     saveTable,
     isDirty,
     supplierTables,
+    refreshTableData,
     loading
   } = useTable();
   const { activeReceipt } = useSubscription();
@@ -76,6 +78,7 @@ export const TablesScreen: React.FC = () => {
   const [firstSetupModalVisible, setFirstSetupModalVisible] = useState(false);
   const [shouldAutoShowFirstPrompt, setShouldAutoShowFirstPrompt] = useState(true);
   const [activeChatTable, setActiveChatTable] = useState<SupplierTablePreview | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   const isSubscriptionActive = Boolean(activeReceipt);
   const shouldShowSubscriptionGate = isSupplierProfile && !isSubscriptionActive && !__DEV__;
 
@@ -144,6 +147,15 @@ export const TablesScreen: React.FC = () => {
       setShouldAutoShowFirstPrompt(false);
     }
   };
+
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await refreshTableData();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refreshTableData]);
 
   const handleSelectUnit = (rowId: string) => {
     if (Platform.OS === 'ios') {
@@ -537,7 +549,12 @@ export const TablesScreen: React.FC = () => {
         end={{ x: 1, y: 1 }}
       />
       <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
+          alwaysBounceVertical
+        >
           {isSteelProfile ? renderSteelView() : renderSupplierView()}
           {!isSteelProfile && activeChatTable ? <View style={styles.stickySpacer} /> : null}
         </ScrollView>

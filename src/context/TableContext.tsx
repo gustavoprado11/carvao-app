@@ -51,6 +51,7 @@ type TableContextValue = {
   isDirty: boolean;
   supplierTables: SupplierTablePreview[];
   refreshSupplierTables: () => Promise<void>;
+  refreshTableData: () => Promise<void>;
   loading: boolean;
 };
 
@@ -145,35 +146,43 @@ export const TableProvider: React.FC<Props> = ({ children }) => {
     refreshSupplierTables();
   }, [refreshSupplierTables]);
 
-  useEffect(() => {
-    const loadSteelData = async () => {
-      if (profile.type !== 'steel' || !profile.email) {
-        setTable(prev => ({ ...prev, id: null }));
-        setIsDirty(false);
-        return;
-      }
-      setLoading(true);
-      const remoteTable = await fetchSteelTableByOwner(profile.email);
-      if (remoteTable) {
-        setTable(mapPricingTableToState(remoteTable));
-        setIsDirty(false);
-      } else {
-        setTable(prev => ({
-          ...prev,
-          id: null,
-          rows: defaultRows.map(row => ({ ...row, id: generateId() })),
-          notes: defaultNotes,
-          paymentTerms: '',
-          scheduleType: 'agendamento',
-          isActive: true
-        }));
-        setIsDirty(true);
-      }
-      setLoading(false);
-    };
-
-    loadSteelData();
+  const refreshSteelTable = useCallback(async () => {
+    if (profile.type !== 'steel' || !profile.email) {
+      setTable(prev => ({ ...prev, id: null }));
+      setIsDirty(false);
+      return;
+    }
+    setLoading(true);
+    const remoteTable = await fetchSteelTableByOwner(profile.email);
+    if (remoteTable) {
+      setTable(mapPricingTableToState(remoteTable));
+      setIsDirty(false);
+    } else {
+      setTable(prev => ({
+        ...prev,
+        id: null,
+        rows: defaultRows.map(row => ({ ...row, id: generateId() })),
+        notes: defaultNotes,
+        paymentTerms: '',
+        scheduleType: 'agendamento',
+        isActive: true
+      }));
+      setIsDirty(true);
+    }
+    setLoading(false);
   }, [profile]);
+
+  useEffect(() => {
+    refreshSteelTable();
+  }, [refreshSteelTable]);
+
+  const refreshTableData = useCallback(async () => {
+    if (profile.type === 'steel') {
+      await refreshSteelTable();
+      return;
+    }
+    await refreshSupplierTables();
+  }, [profile.type, refreshSteelTable, refreshSupplierTables]);
 
   const persistIfSteel = useCallback(
     async (next: TableState) => {
@@ -295,9 +304,10 @@ export const TableProvider: React.FC<Props> = ({ children }) => {
       isDirty,
       supplierTables,
       refreshSupplierTables,
+      refreshTableData,
       loading
     };
-  }, [table, saveCurrentTable, isDirty, supplierTables, refreshSupplierTables, loading]);
+  }, [table, saveCurrentTable, isDirty, supplierTables, refreshSupplierTables, refreshTableData, loading]);
 
   return <TableContext.Provider value={value}>{children}</TableContext.Provider>;
 };
