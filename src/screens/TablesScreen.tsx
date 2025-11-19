@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActionSheetIOS,
   ActivityIndicator,
@@ -12,7 +12,8 @@ import {
   TouchableOpacity,
   View,
   Switch,
-  RefreshControl
+  RefreshControl,
+  useWindowDimensions
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -37,6 +38,44 @@ const schedulingOptions = [
   { label: 'Fila', value: 'fila' as const }
 ];
 
+const parseDensityValue = (value: string | undefined | null) => {
+  if (!value) {
+    return null;
+  }
+  const sanitized = value.replace(/[^\d,.,-]/g, '').replace(/\./g, '').replace(',', '.');
+  const parsed = Number.parseFloat(sanitized);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const findOverlappingRanges = (rows: TableRow[]) => {
+  const parsed = rows.map(row => ({
+    id: row.id,
+    min: parseDensityValue(row.densityMin),
+    max: parseDensityValue(row.densityMax)
+  }));
+
+  const sorted = parsed
+    .filter(item => item.min !== null && item.max !== null)
+    .sort((a, b) => (a.min ?? 0) - (b.min ?? 0));
+
+  const overlapIds = new Set<string>();
+  sorted.forEach((current, index) => {
+    if (current.max !== null && current.min !== null && current.min > current.max) {
+      overlapIds.add(current.id);
+    }
+    if (index === 0) {
+      return;
+    }
+    const previous = sorted[index - 1];
+    if (previous.max !== null && current.min !== null && current.min <= previous.max) {
+      overlapIds.add(previous.id);
+      overlapIds.add(current.id);
+    }
+  });
+
+  return overlapIds;
+};
+
 const getInitials = (value?: string | null) => {
   if (!value) {
     return 'SC';
@@ -52,6 +91,8 @@ const getInitials = (value?: string | null) => {
 
 export const TablesScreen: React.FC = () => {
   const { profile } = useProfile();
+  const { width } = useWindowDimensions();
+  const isCompactLayout = width < 380;
   const isSteelProfile = profile.type === 'steel';
   const isSupplierProfile = profile.type === 'supplier';
   const navigation = useNavigation<NavigationProp<MainTabParamList>>();
@@ -59,13 +100,13 @@ export const TablesScreen: React.FC = () => {
     table,
     addRow,
     removeRow,
+    duplicateRow,
     updateRow,
     updateNotes,
     updatePaymentTerms,
     updateScheduleType,
     toggleActive,
     saveTable,
-    isDirty,
     supplierTables,
     refreshTableData,
     loading
@@ -79,8 +120,28 @@ export const TablesScreen: React.FC = () => {
   const [shouldAutoShowFirstPrompt, setShouldAutoShowFirstPrompt] = useState(true);
   const [activeChatTable, setActiveChatTable] = useState<SupplierTablePreview | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [compactActions, setCompactActions] = useState<Record<string, boolean>>({});
+  const headerMeasurementsRef = useRef<Record<string, { header?: number; heading?: number; actions?: number }>>({});
   const isSubscriptionActive = Boolean(activeReceipt);
   const shouldShowSubscriptionGate = isSupplierProfile && !isSubscriptionActive && !__DEV__;
+  const overlappingRowIds = useMemo(() => findOverlappingRanges(table.rows), [table.rows]);
+  const hasRangeOverlap = overlappingRowIds.size > 0;
+
+  const getFieldError = (value?: string | null) => (!value?.trim() ? 'Campo obrigatório' : null);
+  const updateHeaderMeasurement = useCallback((rowId: string, part: 'header' | 'heading' | 'actions', width: number) => {
+    const prevRow = headerMeasurementsRef.current[rowId] ?? {};
+    const updatedRow = { ...prevRow, [part]: width };
+    headerMeasurementsRef.current[rowId] = updatedRow;
+    if (updatedRow.header && updatedRow.heading && updatedRow.actions) {
+      const shouldCompact = updatedRow.heading + updatedRow.actions + spacing.sm > updatedRow.header;
+      setCompactActions(prevCompact => {
+        if (prevCompact[rowId] === shouldCompact) {
+          return prevCompact;
+        }
+        return { ...prevCompact, [rowId]: shouldCompact };
+      });
+    }
+  }, []);
 
   const isFirstPublish = isSteelProfile && !table.id;
   const firstSetupSteps = [
@@ -108,6 +169,25 @@ export const TablesScreen: React.FC = () => {
       setActiveChatTable(null);
     }
   }, [supplierTables, activeChatTable]);
+
+  useEffect(() => {
+    setCompactActions(prev => {
+      const next: Record<string, boolean> = {};
+      table.rows.forEach(row => {
+        if (prev[row.id] !== undefined) {
+          next[row.id] = prev[row.id];
+        }
+      });
+      return next;
+    });
+    const nextMeasurements: Record<string, { header?: number; heading?: number; actions?: number }> = {};
+    table.rows.forEach(row => {
+      if (headerMeasurementsRef.current[row.id]) {
+        nextMeasurements[row.id] = headerMeasurementsRef.current[row.id];
+      }
+    });
+    headerMeasurementsRef.current = nextMeasurements;
+  }, [table.rows]);
 
   useEffect(() => {
     const fetchConfirmationStatus = async () => {
@@ -302,105 +382,215 @@ export const TablesScreen: React.FC = () => {
       </View>
 
       <View style={styles.tableContainer}>
-        <View style={styles.metaSection}>
-          <View style={styles.metaField}>
-            <Text style={styles.fieldLabel}>Forma de pagamento</Text>
+        <View style={[styles.blockCard, isCompactLayout && styles.blockCardCompact]}>
+          <Text style={styles.blockTitle}>Forma de pagamento</Text>
+          <Text style={styles.blockSubtitle}>Explique como o pagamento acontece após a entrega.</Text>
+          <View style={[styles.inputWrapper, isCompactLayout && styles.inputWrapperCompact]}>
+            <Ionicons name="card-outline" size={18} color="rgba(15,23,42,0.35)" />
             <TextInput
               value={table.paymentTerms}
               onChangeText={updatePaymentTerms}
-              placeholder="Ex: 1 dia útil"
+              placeholder="Ex: pagamento em 1 dia útil com depósito bancário"
               placeholderTextColor={colors.textSecondary}
-              style={[styles.input, styles.metaInput]}
+              style={[styles.input, styles.inputWithIcon]}
             />
           </View>
-          <View style={styles.metaField}>
-            <Text style={styles.fieldLabel}>Agendamento ou fila</Text>
-            <View style={styles.metaSegmentedWrapper}>
-              <SegmentedControl
-                value={table.scheduleType}
-                onChange={updateScheduleType}
-                options={schedulingOptions}
-              />
-            </View>
+        </View>
+
+        <View style={[styles.blockCard, isCompactLayout && styles.blockCardCompact]}>
+          <Text style={styles.blockTitle}>Agendamento ou fila</Text>
+          <Text style={styles.blockSubtitle}>Informe como as cargas são distribuídas no pátio.</Text>
+          <View style={styles.metaSegmentedWrapper}>
+            <SegmentedControl value={table.scheduleType} onChange={updateScheduleType} options={schedulingOptions} />
           </View>
         </View>
 
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Faixas de preço</Text>
-          <TouchableOpacity style={styles.addButton} onPress={addRow}>
-            <Ionicons color={colors.primary} name="add" size={18} />
-            <Text style={styles.addButtonText}>Adicionar linha</Text>
+        <View style={[styles.blockCard, isCompactLayout && styles.blockCardCompact]}>
+          <View style={[styles.blockHeader, isCompactLayout && styles.blockHeaderCompact]}>
+            <Text style={styles.blockTitle}>Faixas de preço</Text>
+            <View style={[styles.rangeBadge, isCompactLayout && styles.rangeBadgeCompact]}>
+              <Ionicons color={colors.primary} name="layers-outline" size={16} />
+              <Text style={styles.rangeBadgeText}>
+                {table.rows.length} {table.rows.length === 1 ? 'faixa cadastrada' : 'faixas cadastradas'}
+              </Text>
+            </View>
+          </View>
+          <Text style={styles.blockSubtitle}>
+            Configure as densidades e valores para classificar automaticamente as ofertas.
+          </Text>
+
+        {table.rows.map((row, index) => {
+          const minError = getFieldError(row.densityMin);
+          const maxError = getFieldError(row.densityMax);
+          const pfError = getFieldError(row.pricePF);
+          const pjError = getFieldError(row.pricePJ);
+          const isOverlapping = overlappingRowIds.has(row.id);
+
+          return (
+            <View
+              key={row.id}
+              style={[
+                styles.rangeCard,
+                isOverlapping ? styles.rangeCardError : null,
+                isCompactLayout && styles.rangeCardCompact
+              ]}
+            >
+              <View
+                style={styles.rangeCardHeader}
+                onLayout={event => updateHeaderMeasurement(row.id, 'header', event.nativeEvent.layout.width)}
+              >
+                <View
+                  style={styles.rangeCardHeading}
+                  onLayout={event => updateHeaderMeasurement(row.id, 'heading', event.nativeEvent.layout.width)}
+                >
+                  <Text style={styles.rangeCardTitle} numberOfLines={1} ellipsizeMode="tail">
+                    Faixa {index + 1}
+                  </Text>
+                </View>
+                <View
+                  style={styles.rowActions}
+                  onLayout={event => updateHeaderMeasurement(row.id, 'actions', event.nativeEvent.layout.width)}
+                >
+                  {(() => {
+                    const shouldUseCompactAction = isCompactLayout || compactActions[row.id];
+                    return (
+                      <>
+                        <TouchableOpacity
+                          accessibilityLabel="Duplicar faixa"
+                          hitSlop={10}
+                          onPress={() => duplicateRow(row.id)}
+                          style={[
+                            styles.rowActionButton,
+                            shouldUseCompactAction && styles.rowActionButtonCompact
+                          ]}
+                        >
+                          <Ionicons color="rgba(15,23,42,0.7)" name="copy-outline" size={16} />
+                          {!shouldUseCompactAction ? (
+                            <Text style={styles.rowActionText}>Duplicar</Text>
+                          ) : null}
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          accessibilityLabel="Remover faixa"
+                          hitSlop={10}
+                          onPress={() => removeRow(row.id)}
+                          style={styles.rowDeleteButton}
+                        >
+                          <Ionicons color="rgba(15,23,42,0.7)" name="close" size={14} />
+                        </TouchableOpacity>
+                      </>
+                    );
+                  })()}
+                </View>
+              </View>
+              <Text style={styles.rangeCardSubtitle}>
+                {row.densityMin || '0'} a {row.densityMax || '—'} kg/m³
+              </Text>
+
+              {isOverlapping ? <Text style={styles.errorText}>❗ Faixa sobreposta com outra densidade.</Text> : null}
+
+              <View style={styles.rangeVerticalInputs}>
+                <View style={styles.rangeField}>
+                  <Text style={styles.rangeFieldLabel}>Faixa inicial (kg/m³)</Text>
+                  <View style={[styles.inputWrapper, isCompactLayout && styles.inputWrapperCompact]}>
+                    <Ionicons name="speedometer-outline" size={16} color="rgba(15,23,42,0.35)" />
+                    <TextInput
+                      value={row.densityMin}
+                      onChangeText={value => updateRow(row.id, 'densityMin', value)}
+                      placeholder="Ex: 0"
+                      keyboardType="decimal-pad"
+                      placeholderTextColor={colors.textSecondary}
+                      style={[styles.input, styles.inputWithIcon]}
+                    />
+                  </View>
+                  {minError ? <Text style={styles.errorText}>{minError}</Text> : null}
+                </View>
+
+                <View style={styles.rangeField}>
+                  <Text style={styles.rangeFieldLabel}>Faixa final (kg/m³)</Text>
+                  <View style={[styles.inputWrapper, isCompactLayout && styles.inputWrapperCompact]}>
+                    <Ionicons name="speedometer-outline" size={16} color="rgba(15,23,42,0.35)" />
+                    <TextInput
+                      value={row.densityMax}
+                      onChangeText={value => updateRow(row.id, 'densityMax', value)}
+                      placeholder="Ex: até 199"
+                      keyboardType="decimal-pad"
+                      placeholderTextColor={colors.textSecondary}
+                      style={[styles.input, styles.inputWithIcon]}
+                    />
+                  </View>
+                  {maxError ? <Text style={styles.errorText}>{maxError}</Text> : null}
+                </View>
+
+                <View style={styles.rangeField}>
+                  <Text style={styles.rangeFieldLabel}>Preço PF (R$)</Text>
+                  <View style={[styles.inputWrapper, isCompactLayout && styles.inputWrapperCompact]}>
+                    <Ionicons name="cash-outline" size={16} color="rgba(15,23,42,0.35)" />
+                    <TextInput
+                      value={row.pricePF}
+                      onChangeText={value => updateRow(row.id, 'pricePF', value)}
+                      placeholder="Informe o valor PF"
+                      placeholderTextColor={colors.textSecondary}
+                      keyboardType="decimal-pad"
+                      style={[styles.input, styles.inputWithIcon]}
+                    />
+                  </View>
+                  {pfError ? <Text style={styles.errorText}>{pfError}</Text> : null}
+                </View>
+
+                <View style={styles.rangeField}>
+                  <Text style={styles.rangeFieldLabel}>Preço PJ (R$)</Text>
+                  <View style={[styles.inputWrapper, isCompactLayout && styles.inputWrapperCompact]}>
+                    <Ionicons name="briefcase-outline" size={16} color="rgba(15,23,42,0.35)" />
+                    <TextInput
+                      value={row.pricePJ}
+                      onChangeText={value => updateRow(row.id, 'pricePJ', value)}
+                      placeholder="Informe o valor PJ"
+                      placeholderTextColor={colors.textSecondary}
+                      keyboardType="decimal-pad"
+                      style={[styles.input, styles.inputWithIcon]}
+                    />
+                  </View>
+                  {pjError ? <Text style={styles.errorText}>{pjError}</Text> : null}
+                </View>
+
+                <View style={styles.rangeField}>
+                  <Text style={styles.rangeFieldLabel}>Unidade de pagamento</Text>
+                  <TouchableOpacity
+                    accessibilityLabel="Selecionar unidade de pagamento"
+                    activeOpacity={0.86}
+                    style={[styles.unitButton, isCompactLayout && styles.unitButtonCompact]}
+                    onPress={() => handleSelectUnit(row.id)}
+                  >
+                    <View style={styles.unitLabelWrapper}>
+                      <Ionicons name="cube-outline" size={14} color="rgba(15,23,42,0.45)" />
+                      <Text style={styles.unitButtonText}>{unitLabel(row.unit)}</Text>
+                    </View>
+                    <Ionicons color={colors.textSecondary} name="chevron-down" size={16} />
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          );
+        })}
+
+        {hasRangeOverlap ? (
+          <Text style={[styles.rangeHelperText, styles.rangeHelperTextError]}>
+            ❗ Existem faixas com intervalos sobrepostos. Ajuste os valores antes de salvar.
+          </Text>
+        ) : null}
+
+          <TouchableOpacity activeOpacity={0.9} onPress={addRow} style={styles.addRangeButtonWrapper}>
+            <LinearGradient
+              colors={['#4F8EF7', '#2A6DE3']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={[styles.addRangeButton, isCompactLayout && styles.addRangeButtonCompact]}
+            >
+              <Ionicons color="#FFFFFF" name="add" size={18} />
+              <Text style={styles.addRangeButtonText}>Adicionar nova faixa de preço</Text>
+            </LinearGradient>
           </TouchableOpacity>
         </View>
-
-        {table.rows.map(row => (
-          <View key={row.id} style={styles.rowCard}>
-            <View style={styles.rowHeader}>
-              <Text style={styles.fieldLabel}>Faixa de Densidade (kg/m³)</Text>
-              <TouchableOpacity accessibilityLabel="Remover linha" hitSlop={10} onPress={() => removeRow(row.id)}>
-                <Ionicons color={colors.accent} name="close-circle" size={20} />
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.rangeRow}>
-              <TextInput
-                value={row.densityMin}
-                onChangeText={value => updateRow(row.id, 'densityMin', value)}
-                placeholder="0"
-                keyboardType="decimal-pad"
-                placeholderTextColor={colors.textSecondary}
-                style={[styles.input, styles.rangeInput]}
-              />
-              <Text style={styles.rangeSeparator}>—</Text>
-              <TextInput
-                value={row.densityMax}
-                onChangeText={value => updateRow(row.id, 'densityMax', value)}
-                placeholder="199,99"
-                keyboardType="decimal-pad"
-                placeholderTextColor={colors.textSecondary}
-                style={[styles.input, styles.rangeInput]}
-              />
-            </View>
-
-            <View style={styles.fieldGroup}>
-              <View style={styles.fieldBlock}>
-                <Text style={styles.fieldLabel}>Preço PF (R$)</Text>
-                <TextInput
-                  value={row.pricePF}
-                  onChangeText={value => updateRow(row.id, 'pricePF', value)}
-                  placeholder="0,00"
-                  keyboardType="decimal-pad"
-                  placeholderTextColor={colors.textSecondary}
-                  style={styles.input}
-                />
-              </View>
-              <View style={styles.fieldBlock}>
-                <Text style={styles.fieldLabel}>Preço PJ (R$)</Text>
-                <TextInput
-                  value={row.pricePJ}
-                  onChangeText={value => updateRow(row.id, 'pricePJ', value)}
-                  placeholder="0,00"
-                  keyboardType="decimal-pad"
-                  placeholderTextColor={colors.textSecondary}
-                  style={styles.input}
-                />
-              </View>
-            </View>
-
-            <View style={styles.fieldBlock}>
-              <Text style={styles.fieldLabel}>Unidade de Pagamento</Text>
-              <TouchableOpacity
-                accessibilityLabel="Selecionar unidade de pagamento"
-                activeOpacity={0.86}
-                style={styles.unitButton}
-                onPress={() => handleSelectUnit(row.id)}
-              >
-                <Text style={styles.unitButtonText}>{unitLabel(row.unit)}</Text>
-                <Ionicons color={colors.textSecondary} name="chevron-down" size={16} />
-              </TouchableOpacity>
-            </View>
-          </View>
-        ))}
       </View>
 
       <View style={styles.notesCard}>
@@ -415,12 +605,7 @@ export const TablesScreen: React.FC = () => {
         />
       </View>
 
-      <PrimaryButton
-        label="Salvar tabela"
-        onPress={handleSaveTable}
-        disabled={!isDirty || isSavingTable}
-        loading={isSavingTable}
-      />
+      <PrimaryButton label="Salvar tabela" onPress={handleSaveTable} disabled={isSavingTable} loading={isSavingTable} />
     </>
   );
 
@@ -754,124 +939,268 @@ const styles = StyleSheet.create({
     color: colors.textSecondary
   },
   tableContainer: {
-    backgroundColor: colors.surface,
-    borderRadius: spacing.lg,
-    padding: spacing.lg,
-    gap: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.border
-  },
-  metaSection: {
-    gap: spacing.md
-  },
-  metaField: {
-    gap: spacing.xs
-  },
-  metaInput: {
-    width: '100%'
-  },
-  metaSegmentedWrapper: {
-    alignSelf: 'stretch'
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between'
+    gap: spacing.lg
   },
   sectionTitle: {
     fontSize: 16,
     fontWeight: '600',
     color: colors.textPrimary
   },
-  addButton: {
+  blockCard: {
+    backgroundColor: colors.surface,
+    borderRadius: spacing.xl,
+    padding: spacing.lg,
+    gap: spacing.sm,
+    shadowColor: 'rgba(15,23,42,0.08)',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 1,
+    shadowRadius: 24,
+    elevation: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(148,163,184,0.2)'
+  },
+  blockCardCompact: {
+    padding: spacing.md
+  },
+  blockHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center'
+  },
+  blockHeaderCompact: {
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    gap: spacing.sm
+  },
+  blockTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.textPrimary
+  },
+  blockSubtitle: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    lineHeight: 20
+  },
+  inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    borderRadius: spacing.sm,
+    borderRadius: spacing.xl,
     borderWidth: 1,
-    borderColor: colors.primary,
-    backgroundColor: colors.primaryMuted,
+    borderColor: '#D5DEEE',
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm - 2,
+    gap: spacing.sm
+  },
+  inputWrapperCompact: {
+    width: '100%',
+    borderRadius: spacing.lg,
+    paddingVertical: spacing.xs + 2
+  },
+  inputWithIcon: {
+    flex: 1,
+    paddingHorizontal: 0
+  },
+  metaSegmentedWrapper: {
+    alignSelf: 'stretch',
+    marginTop: spacing.xs
+  },
+  rangeBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(37,99,235,0.1)',
+    borderRadius: spacing.xl,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
     gap: spacing.xs
   },
-  addButtonText: {
-    color: colors.primary,
-    fontWeight: '600',
-    fontSize: 13
+  rangeBadgeCompact: {
+    marginTop: spacing.sm,
+    alignSelf: 'stretch',
+    justifyContent: 'center'
   },
-  rowCard: {
-    borderRadius: spacing.sm,
+  rangeBadgeText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.primary
+  },
+  rangeCard: {
+    borderRadius: spacing.lg,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: 'rgba(148,163,184,0.22)',
     padding: spacing.md,
-    backgroundColor: colors.surface,
-    gap: spacing.sm
+    backgroundColor: '#F8FAFF',
+    gap: spacing.md
   },
-  rowHeader: {
+  rangeCardCompact: {
+    padding: spacing.sm
+  },
+  rangeCardError: {
+    borderColor: '#F87171',
+    backgroundColor: '#FFF5F5'
+  },
+  rangeCardHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between'
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+    flexWrap: 'wrap'
   },
-  fieldLabel: {
-    fontSize: 12,
+  rangeCardHeading: {
+    flex: 1,
+    marginRight: spacing.sm,
+    minWidth: 0
+  },
+  rangeCardTitle: {
+    fontSize: 16,
     fontWeight: '600',
+    color: colors.textPrimary
+  },
+  rangeCardSubtitle: {
+    fontSize: 13,
     color: colors.textSecondary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6
+    marginTop: spacing.xs / 2,
+    width: '100%'
   },
-  rangeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm
+  rangeVerticalInputs: {
+    gap: spacing.md
   },
-  rangeSeparator: {
-    fontSize: 18,
+  rangeField: {
+    width: '100%',
+    gap: spacing.xs
+  },
+  rangeFieldLabel: {
+    fontSize: 13,
     fontWeight: '600',
     color: colors.textSecondary
   },
-  fieldGroup: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.md
+  rangeInputBlock: {
+    width: '100%'
   },
-  fieldBlock: {
-    flex: 1,
-    minWidth: 140,
-    gap: spacing.xs
+  removeRangeButton: {
+    padding: spacing.xs,
+    backgroundColor: 'rgba(148,163,184,0.2)',
+    borderRadius: spacing.sm
   },
   input: {
-    backgroundColor: colors.surface,
+    backgroundColor: 'transparent',
     borderRadius: spacing.md,
     borderWidth: 1,
     borderColor: colors.border,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs + 4,
     fontSize: 15,
-    color: colors.textPrimary
+    color: colors.textPrimary,
+    fontWeight: '600'
   },
   rangeInput: {
     flex: 1
   },
-  readOnlyValue: {
-    fontSize: 16,
+  smallLabel: {
+    fontSize: 12,
     fontWeight: '600',
-    color: colors.textPrimary
+    color: colors.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6
   },
   unitButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs + 2,
-    borderRadius: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: spacing.xl,
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface
+    borderColor: '#D5DEEE',
+    backgroundColor: '#FFFFFF',
+    marginTop: spacing.xs
+  },
+  unitButtonCompact: {
+    width: '100%'
+  },
+  unitLabelWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs
   },
   unitButtonText: {
     fontSize: 15,
     color: colors.textPrimary,
     fontWeight: '600'
+  },
+  rangeHelperText: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    lineHeight: 20
+  },
+  rangeHelperTextError: {
+    color: '#DC2626',
+    fontWeight: '600'
+  },
+  addRangeButtonWrapper: {
+    marginTop: spacing.md
+  },
+  addRangeButton: {
+    borderRadius: spacing.xxl,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm
+  },
+  addRangeButtonCompact: {
+    width: '100%'
+  },
+  addRangeButtonText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '600'
+  },
+  errorText: {
+    fontSize: 12,
+    color: '#DC2626',
+    marginTop: spacing.xs / 2
+  },
+  rowActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    flexShrink: 0,
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end'
+  },
+  rowActionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs + 2,
+    backgroundColor: 'rgba(15,23,42,0.08)',
+    borderRadius: spacing.xxl,
+    minHeight: 34
+  },
+  rowActionButtonCompact: {
+    paddingHorizontal: spacing.sm
+  },
+  rowActionText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.textSecondary
+  },
+  rowDeleteButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: 'rgba(15,23,42,0.08)',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  readOnlyValue: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.textPrimary
   },
   notesCard: {
     backgroundColor: colors.surface,
@@ -1125,11 +1454,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.xs,
     paddingVertical: spacing.xs
-  },
-  unitLabelWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs
   },
   unitRowLabel: {
     fontSize: 12,

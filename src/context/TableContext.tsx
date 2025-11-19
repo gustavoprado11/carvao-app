@@ -42,6 +42,7 @@ type TableContextValue = {
   table: TableState;
   addRow: () => void;
   removeRow: (id: string) => void;
+  duplicateRow: (id: string) => void;
   updateRow: <K extends keyof TableRow>(id: string, key: K, value: TableRow[K]) => void;
   updateNotes: (value: string) => void;
   updatePaymentTerms: (value: string) => void;
@@ -263,6 +264,24 @@ export const TableProvider: React.FC<Props> = ({ children }) => {
       setIsDirty(true);
     };
 
+    const duplicateRow = (id: string) => {
+      setTable(prev => {
+        const target = prev.rows.find(row => row.id === id);
+        if (!target) {
+          return prev;
+        }
+        const duplicated: TableRow = {
+          ...target,
+          id: generateId()
+        };
+        const index = prev.rows.findIndex(row => row.id === id);
+        const nextRows = [...prev.rows];
+        nextRows.splice(index + 1, 0, duplicated);
+        return { ...prev, rows: nextRows };
+      });
+      setIsDirty(true);
+    };
+
     const updateRow: TableContextValue['updateRow'] = (id, key, value) => {
       setTable(prev => ({
         ...prev,
@@ -295,6 +314,7 @@ export const TableProvider: React.FC<Props> = ({ children }) => {
       table,
       addRow,
       removeRow,
+      duplicateRow,
       updateRow,
       updateNotes,
       updatePaymentTerms,
