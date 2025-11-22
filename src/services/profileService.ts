@@ -12,6 +12,13 @@ type ProfileRecord = {
   average_density_kg?: string | null;
   average_volume_m3?: string | null;
   status?: string | null;
+  document_status?: string | null;
+  document_url?: string | null;
+  document_storage_path?: string | null;
+  document_uploaded_at?: string | null;
+  document_reviewed_at?: string | null;
+  document_reviewed_by?: string | null;
+  document_review_notes?: string | null;
   created_at?: string;
   updated_at?: string;
 };
@@ -21,6 +28,8 @@ const TABLE_NAME = 'profiles';
 const toDomainProfile = (record: ProfileRecord): UserProfile => {
   const type = (record.type as UserProfile['type']) ?? 'supplier';
   const status = (record.status as ProfileStatus) ?? (type === 'steel' ? 'approved' : undefined);
+  const documentStatus =
+    (record.document_status as UserProfile['documentStatus']) ?? (type === 'supplier' ? 'missing' : undefined);
 
   return {
     id: record.id,
@@ -32,14 +41,23 @@ const toDomainProfile = (record: ProfileRecord): UserProfile => {
     supplyAudience: (record.supply_audience as UserProfile['supplyAudience']) ?? undefined,
     averageDensityKg: record.average_density_kg ?? undefined,
     averageMonthlyVolumeM3: record.average_volume_m3 ?? undefined,
-    status
+    status,
+    documentStatus,
+    documentUrl: record.document_url ?? undefined,
+    documentStoragePath: record.document_storage_path ?? undefined,
+    documentUploadedAt: record.document_uploaded_at ?? undefined,
+    documentReviewedAt: record.document_reviewed_at ?? undefined,
+    documentReviewedBy: record.document_reviewed_by ?? undefined,
+    documentReviewNotes: record.document_review_notes ?? undefined
   };
 };
 
 export const fetchProfileByEmail = async (email: string): Promise<UserProfile | null> => {
   const { data, error } = await supabase
     .from(TABLE_NAME)
-    .select('id, email, type, company, contact, location, supply_audience, average_density_kg, average_volume_m3, status')
+    .select(
+      'id, email, type, company, contact, location, supply_audience, average_density_kg, average_volume_m3, status, document_status, document_url, document_storage_path, document_uploaded_at, document_reviewed_at, document_reviewed_by, document_review_notes'
+    )
     .eq('email', email.toLowerCase())
     .maybeSingle();
 
@@ -63,13 +81,22 @@ export const upsertProfile = async (profile: UserProfile): Promise<UserProfile |
     supply_audience: profile.supplyAudience ?? null,
     average_density_kg: profile.averageDensityKg ?? null,
     average_volume_m3: profile.averageMonthlyVolumeM3 ?? null,
-    status: profile.status ?? (profile.type === 'steel' ? 'pending' : 'approved')
+    status: profile.status ?? (profile.type === 'steel' ? 'pending' : 'approved'),
+    document_status: profile.documentStatus ?? null,
+    document_url: profile.documentUrl ?? null,
+    document_storage_path: profile.documentStoragePath ?? null,
+    document_uploaded_at: profile.documentUploadedAt ?? null,
+    document_reviewed_at: profile.documentReviewedAt ?? null,
+    document_reviewed_by: profile.documentReviewedBy ?? null,
+    document_review_notes: profile.documentReviewNotes ?? null
   };
 
   const { data, error } = await supabase
     .from(TABLE_NAME)
     .upsert(payload, { onConflict: 'email' })
-    .select('id, email, type, company, contact, location, supply_audience, average_density_kg, average_volume_m3, status')
+    .select(
+      'id, email, type, company, contact, location, supply_audience, average_density_kg, average_volume_m3, status, document_status, document_url, document_storage_path, document_uploaded_at, document_reviewed_at, document_reviewed_by, document_review_notes'
+    )
     .maybeSingle();
 
   if (error) {
@@ -96,7 +123,14 @@ export const seedProfile = async (profile: UserProfile): Promise<UserProfile | n
     p_supply_audience: profile.supplyAudience ?? null,
     p_average_density: profile.averageDensityKg ?? null,
     p_average_volume: profile.averageMonthlyVolumeM3 ?? null,
-    p_status: profile.status ?? (profile.type === 'steel' ? 'pending' : 'approved')
+    p_status: profile.status ?? (profile.type === 'steel' ? 'pending' : 'approved'),
+    p_document_status: profile.documentStatus ?? null,
+    p_document_url: profile.documentUrl ?? null,
+    p_document_storage_path: profile.documentStoragePath ?? null,
+    p_document_uploaded_at: profile.documentUploadedAt ?? null,
+    p_document_reviewed_at: profile.documentReviewedAt ?? null,
+    p_document_reviewed_by: profile.documentReviewedBy ?? null,
+    p_document_review_notes: profile.documentReviewNotes ?? null
   });
 
   if (error || !data) {
@@ -119,7 +153,9 @@ export const fetchProfilesByType = async (type: ProfileType): Promise<UserProfil
 
   const { data, error } = await supabase
     .from(TABLE_NAME)
-    .select('id, email, type, company, contact, location, supply_audience, average_density_kg, average_volume_m3, status')
+    .select(
+      'id, email, type, company, contact, location, supply_audience, average_density_kg, average_volume_m3, status, document_status, document_url, document_storage_path, document_uploaded_at, document_reviewed_at, document_reviewed_by, document_review_notes'
+    )
     .eq('type', type);
 
   if (type === 'steel') {
@@ -154,12 +190,25 @@ export const fetchSupplierProfilesByEmails = async (emails: string[]): Promise<U
     emails: normalized
   });
 
-  if (error || !data) {
-    console.warn('[Supabase] get_supplier_profiles RPC failed', error);
+  if (!error && data) {
+    return (data as ProfileRecord[]).map(toDomainProfile);
+  }
+
+  console.warn('[Supabase] get_supplier_profiles RPC failed', error);
+
+  const { data: fallbackData, error: fallbackError } = await supabase
+    .from(TABLE_NAME)
+    .select(
+      'id, email, type, company, contact, location, supply_audience, average_density_kg, average_volume_m3, status'
+    )
+    .in('email', normalized);
+
+  if (fallbackError || !fallbackData) {
+    console.warn('[Supabase] fetchSupplierProfilesByEmails fallback failed', fallbackError);
     return [];
   }
 
-  return (data as ProfileRecord[]).map(toDomainProfile);
+  return (fallbackData as ProfileRecord[]).map(toDomainProfile);
 };
 
 export const fetchSteelProfilesByStatus = async (status: ProfileStatus): Promise<UserProfile[]> => {
@@ -175,7 +224,9 @@ export const fetchSteelProfilesByStatus = async (status: ProfileStatus): Promise
 
   const { data: tableData, error: tableError } = await supabase
     .from(TABLE_NAME)
-    .select('id, email, type, company, contact, location, supply_audience, average_density_kg, average_volume_m3, status')
+    .select(
+      'id, email, type, company, contact, location, supply_audience, average_density_kg, average_volume_m3, status, document_status, document_url, document_storage_path, document_uploaded_at, document_reviewed_at, document_reviewed_by, document_review_notes'
+    )
     .eq('type', 'steel')
     .eq('status', status);
 
@@ -206,7 +257,9 @@ export const updateProfileStatus = async (profileId: string, status: ProfileStat
     .from(TABLE_NAME)
     .update({ status })
     .eq('id', profileId)
-    .select('id, email, type, company, contact, location, supply_audience, average_density_kg, average_volume_m3, status')
+    .select(
+      'id, email, type, company, contact, location, supply_audience, average_density_kg, average_volume_m3, status, document_status, document_url, document_storage_path, document_uploaded_at, document_reviewed_at, document_reviewed_by, document_review_notes'
+    )
     .maybeSingle();
 
   if (tableError) {

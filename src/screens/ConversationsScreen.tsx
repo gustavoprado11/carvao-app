@@ -172,7 +172,10 @@ export const ConversationsScreen: React.FC = () => {
         return;
       }
       const partners = await fetchProfilesByType('steel');
-      const sorted = partners.slice().sort((a, b) => {
+      const approvedOrMissingStatus = partners.filter(
+        item => !item.status || item.status === 'approved'
+      );
+      const sorted = approvedOrMissingStatus.slice().sort((a, b) => {
         const nameA = (a.company ?? a.contact ?? a.email).toLowerCase();
         const nameB = (b.company ?? b.contact ?? b.email).toLowerCase();
         return nameA.localeCompare(nameB);
@@ -227,18 +230,12 @@ export const ConversationsScreen: React.FC = () => {
         if (!partner) {
           return undefined;
         }
-        const contact = (partner.contact ?? '').trim();
         const company = (partner.company ?? '').trim();
-        if (contact && company) {
-          return `${contact} | ${company}`;
+        const contact = (partner.contact ?? '').trim();
+        if (company && contact) {
+          return `${company} | ${contact}`;
         }
-        if (contact) {
-          return contact;
-        }
-        if (company) {
-          return company;
-        }
-        return undefined;
+        return company || contact || undefined;
       };
 
       if (profile.type === 'supplier') {
@@ -256,9 +253,9 @@ export const ConversationsScreen: React.FC = () => {
       }
 
       if (profile.type === 'steel') {
-        return 'Fornecedor sem nome';
+        return counterpartEmail || 'Fornecedor';
       }
-      return counterpartEmail;
+      return counterpartEmail || 'Siderúrgica';
     },
     [profile.type, steelPartners, supplierPartners, findPartnerByEmail]
   );
@@ -354,7 +351,7 @@ export const ConversationsScreen: React.FC = () => {
     if (!isSupplier) {
       return [] as UserProfile[];
     }
-    return steelPartners.filter(partner => partner.status === 'approved');
+    return steelPartners;
   }, [isSupplier, steelPartners]);
 
   const handleNavigateToPlans = () => {

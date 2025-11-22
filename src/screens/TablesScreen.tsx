@@ -29,7 +29,7 @@ import type { MainTabParamList } from '../navigation/MainTabs';
 import { supabase } from '../lib/supabaseClient';
 
 const unitOptions = [
-  { label: 'm³', value: 'm3' as const },
+  { label: 'metro', value: 'm3' as const },
   { label: 'tonelada', value: 'tonelada' as const }
 ];
 

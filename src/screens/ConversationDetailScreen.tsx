@@ -9,7 +9,8 @@ import {
   TouchableOpacity,
   View,
   Modal,
-  Switch
+  Switch,
+  Alert
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -77,7 +78,7 @@ const MessageBubble: React.FC<{ message: ConversationMessage; isOwn: boolean }> 
 export const ConversationDetailScreen: React.FC = () => {
   const route = useRoute<RouteProp<ConversationsStackParamList, 'ConversationDetail'>>();
   const { profile } = useProfile();
-  const { conversationId } = route.params;
+  const { conversationId, steelEmail, counterpartName } = route.params;
   const { markConversationRead, setActiveConversation } = useConversationRead();
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -171,18 +172,6 @@ Os principais documentos são:
     }
     return null;
   }, [profile.type, profile.email]);
-
-  const quickReplyIcons: Record<string, keyof typeof Ionicons.glyphMap> = useMemo(
-    () => ({
-      'offer-accepted': 'checkmark-done-outline',
-      documentation: 'document-text-outline',
-      support: 'chatbubble-ellipses-outline',
-      pitch: 'megaphone-outline',
-      visit: 'compass-outline',
-      quote: 'pricetag-outline'
-    }),
-    []
-  );
 
   const storageKey = useMemo(() => {
     if (!profile.email) {
@@ -323,6 +312,28 @@ Os principais documentos são:
     return items;
   }, [messages]);
 
+  const handleShareDocuments = useCallback(() => {
+    if (profile.type !== 'supplier') {
+      return;
+    }
+    const counterpartLabel = counterpartName || steelEmail || 'siderúrgica';
+    Alert.alert(
+      'Compartilhar documentação',
+      `Deseja compartilhar todos os seus documentos com ${counterpartLabel}?`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Compartilhar',
+          style: 'default',
+          onPress: () => {
+            // TODO: integrar com compartilhamento real (document_shares) quando backend estiver disponível
+            Alert.alert('Documentação compartilhada', `Disponibilizamos seus documentos para ${counterpartLabel}.`);
+          }
+        }
+      ]
+    );
+  }, [counterpartName, profile.type, steelEmail]);
+
   return (
     <View style={styles.root}>
       <LinearGradient
@@ -383,41 +394,26 @@ Os principais documentos são:
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.quickReplyList}
               >
-                {quickReplyConfig.options.map(option => {
-                  const iconName =
-                    quickReplyIcons[option.id] ??
-                    (quickReplyConfig.tone === 'supplier' ? 'leaf-outline' : 'document-text-outline');
-                  return (
-                    <TouchableOpacity
-                      key={option.id}
-                      style={[
-                        styles.quickReplyOption,
-                        quickReplyConfig.tone === 'supplier'
-                          ? styles.quickReplyOptionSupplier
-                          : styles.quickReplyOptionSteel,
-                        isSending ? styles.quickReplyOptionDisabled : null
-                      ]}
-                      disabled={isSending}
-                      onPress={() => handleQuickReplyPress(option)}
-                    >
-                        <View style={styles.quickReplyOptionContent}>
-                          <View style={styles.quickReplyIcon}>
-                            <Ionicons
-                              name={iconName}
-                              size={16}
-                              color="rgba(15,23,42,0.6)"
-                            />
-                          </View>
-                        <View style={styles.quickReplyText}>
-                          <Text style={styles.quickReplyOptionTitle}>{option.title}</Text>
-                          <Text style={styles.quickReplyOptionSubtitle} numberOfLines={1}>
-                            {option.subtitle}
-                          </Text>
-                        </View>
-                      </View>
-                    </TouchableOpacity>
-                  );
-                })}
+                {profile.type === 'supplier' ? (
+                  <QuickActionButton
+                    label="Compartilhar documentação"
+                    subtitle="Enviar docs para esta siderúrgica"
+                    active
+                    onPress={handleShareDocuments}
+                    disabled={isSending}
+                  />
+                ) : null}
+                {quickReplyConfig.options.map(option => (
+                  <QuickActionButton
+                    key={option.id}
+                    label={option.title}
+                    subtitle={option.subtitle}
+                    active={quickReplyConfig.tone === 'supplier'}
+                    inactive={quickReplyConfig.tone !== 'supplier'}
+                    onPress={() => handleQuickReplyPress(option)}
+                    disabled={isSending}
+                  />
+                ))}
               </ScrollView>
             </View>
           ) : null}
@@ -562,54 +558,29 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xs
   },
   quickReplyList: {
-    alignItems: 'stretch',
+    alignItems: 'center',
     paddingRight: spacing.md,
-    paddingVertical: spacing.xs
+    paddingVertical: spacing.xs,
+    gap: spacing.sm
   },
-  quickReplyOption: {
-    minWidth: 200,
-    maxWidth: 260,
-    borderRadius: spacing.lg,
-    paddingVertical: spacing.xs / 2,
-    paddingHorizontal: spacing.lg,
-    borderWidth: 1,
-    marginRight: spacing.sm,
-    borderColor: 'rgba(148,163,184,0.3)'
-  },
-  quickReplyOptionSteel: {
-    backgroundColor: 'rgba(59,130,246,0.12)'
-  },
-  quickReplyOptionSupplier: {
-    backgroundColor: 'rgba(16,185,129,0.15)'
-  },
-  quickReplyOptionDisabled: {
-    opacity: 0.6
-  },
-  quickReplyOptionContent: {
-    flexDirection: 'row',
+  quickActionButton: {
+    minWidth: 100,
+    height: 40,
+    paddingHorizontal: 20,
+    borderRadius: 22,
+    justifyContent: 'center',
     alignItems: 'center',
-    gap: spacing.md
+    borderWidth: 1
   },
-  quickReplyIcon: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: 'rgba(255,255,255,0.7)',
-    alignItems: 'center',
-    justifyContent: 'center'
-  },
-  quickReplyText: {
-    flex: 1,
-    gap: spacing.xs / 2
-  },
-  quickReplyOptionTitle: {
+  quickActionLabel: {
     fontSize: 14,
     fontWeight: '600',
-    color: colors.textPrimary
+    textAlign: 'center'
   },
-  quickReplyOptionSubtitle: {
-    fontSize: 11,
-    color: colors.textSecondary
+  quickActionSubtitle: {
+    fontSize: 12,
+    fontWeight: '400',
+    textAlign: 'center'
   },
   quickReplyModalBackdrop: {
     flex: 1,
@@ -670,6 +641,11 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: colors.textSecondary,
     fontWeight: '600'
+  },
+  shareDocsButton: {
+    alignSelf: 'stretch',
+    marginHorizontal: spacing.md,
+    marginTop: spacing.sm
   },
   loadingWrapper: {
     flex: 1,
@@ -781,3 +757,50 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(148,163,184,0.2)'
   }
 });
+type QuickActionButtonProps = {
+  label: string;
+  subtitle?: string;
+  active?: boolean;
+  inactive?: boolean;
+  disabled?: boolean;
+  onPress: () => void;
+};
+
+const QuickActionButton: React.FC<QuickActionButtonProps> = ({
+  label,
+  subtitle,
+  active = false,
+  inactive = false,
+  disabled = false,
+  onPress
+}) => {
+  const isActive = active && !inactive;
+  const backgroundColor = isActive ? colors.primary : 'transparent';
+  const borderColor = isActive ? colors.primary : '#D1D5DB';
+  const textColor = isActive ? '#FFFFFF' : '#6B7280';
+
+  return (
+    <TouchableOpacity
+      style={[
+        styles.quickActionButton,
+        {
+          backgroundColor,
+    borderColor
+        },
+        disabled && { opacity: 0.6 }
+      ]}
+      disabled={disabled}
+      onPress={onPress}
+      activeOpacity={0.85}
+    >
+      <Text style={[styles.quickActionLabel, { color: textColor }]} numberOfLines={2}>
+        {label}
+      </Text>
+      {subtitle ? (
+        <Text style={[styles.quickActionSubtitle, { color: textColor }]} numberOfLines={2}>
+          {subtitle}
+        </Text>
+      ) : null}
+    </TouchableOpacity>
+  );
+};

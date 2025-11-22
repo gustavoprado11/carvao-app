@@ -23,6 +23,7 @@ import { notifySteelSignup } from './services/adminNotificationService';
 import { TextField } from './components/TextField';
 import { PrimaryButton } from './components/PrimaryButton';
 import { PendingApprovalScreen } from './screens/PendingApprovalScreen';
+import { SupplierAccessGate } from './screens/SupplierAccessGate';
 
 const navigationTheme = {
   ...DefaultTheme,
@@ -168,7 +169,8 @@ const App: React.FC = () => {
       const profileToSave: UserProfile = {
         ...normalizedProfile,
         id: userId,
-        status: normalizedProfile.type === 'steel' ? 'pending' : 'approved'
+        status: normalizedProfile.type === 'steel' ? 'pending' : 'approved',
+        documentStatus: normalizedProfile.type === 'supplier' ? 'missing' : undefined
       };
 
       const saved = await seedProfile(profileToSave);
@@ -256,7 +258,8 @@ const App: React.FC = () => {
     const fallbackProfile: UserProfile = {
       ...normalizedProfile,
       id: userId,
-      status: normalizedProfile.type === 'steel' ? 'pending' : 'approved'
+      status: normalizedProfile.type === 'steel' ? 'pending' : 'approved',
+      documentStatus: normalizedProfile.type === 'supplier' ? 'missing' : undefined
     };
 
     const { error: metadataError } = await supabase.auth.updateUser({
@@ -372,6 +375,23 @@ const App: React.FC = () => {
       );
     }
 
+    if (currentProfile.type === 'supplier') {
+      return (
+        <NavigationContainer theme={navigationTheme}>
+          <ProfileProvider
+            profile={currentProfile}
+            updateProfile={handleUpdateProfile}
+            logout={handleLogout}
+            refreshProfile={handleRefreshProfile}
+          >
+            <SubscriptionProvider>
+              <SupplierAccessGate />
+            </SubscriptionProvider>
+          </ProfileProvider>
+        </NavigationContainer>
+      );
+    }
+
     return (
       <NavigationContainer theme={navigationTheme}>
         <ProfileProvider
@@ -380,15 +400,15 @@ const App: React.FC = () => {
           logout={handleLogout}
           refreshProfile={handleRefreshProfile}
         >
-          <NotificationProvider>
-            <ConversationReadProvider>
-              <SubscriptionProvider>
+          <SubscriptionProvider>
+            <NotificationProvider>
+              <ConversationReadProvider>
                 <TableProvider>
                   <MainTabs />
                 </TableProvider>
-              </SubscriptionProvider>
-            </ConversationReadProvider>
-          </NotificationProvider>
+              </ConversationReadProvider>
+            </NotificationProvider>
+          </SubscriptionProvider>
         </ProfileProvider>
       </NavigationContainer>
     );

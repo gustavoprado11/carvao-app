@@ -5,12 +5,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MenuScreen } from '../screens/MenuScreen';
 import { TablesScreen } from '../screens/TablesScreen';
 import { ConversationsStack } from './ConversationsStack';
+import { DocumentsScreen } from '../screens/DocumentsScreen';
 import { colors } from '../theme';
 import { MessageNotificationListener } from '../components/MessageNotificationListener';
 import { useConversationRead } from '../context/ConversationReadContext';
 
 export type MainTabParamList = {
   Menu: undefined;
+  Documentos: undefined;
   Tabelas: undefined;
   Conversas: undefined;
 };
@@ -54,6 +56,7 @@ export const MainTabs: React.FC = () => {
       })}
     >
       <Tab.Screen name="Menu" component={MenuScreen} />
+      <Tab.Screen name="Documentos" component={DocumentsScreen} />
       <Tab.Screen name="Tabelas" component={TablesScreen} />
       <Tab.Screen name="Conversas" component={ConversationsStack} options={{ headerShown: false }} />
     </Tab.Navigator>
@@ -69,6 +72,8 @@ const getIconName = (routeName: keyof MainTabParamList): keyof typeof Ionicons.g
       return 'bar-chart-outline';
     case 'Conversas':
       return 'chatbubble-ellipses-outline';
+    case 'Documentos':
+      return 'document-text-outline';
     default:
       return 'ellipse-outline';
   }

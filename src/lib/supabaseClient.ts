@@ -1,11 +1,19 @@
 import { createClient } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-export const SUPABASE_URL = 'https://grndssjckedvtiskcefo.supabase.co';
+// Expo/EAS usa EXPO_PUBLIC_* no bundle; mantemos fallback para NEXT_PUBLIC_* em dev.
+export const SUPABASE_URL =
+  process.env.EXPO_PUBLIC_SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
 export const SUPABASE_ANON_KEY =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdybmRzc2pja2VkdnRpc2tjZWZvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjExNDI1ODksImV4cCI6MjA3NjcxODU4OX0.L6_v2V_7K0H3z57CEtlxJIMcvUhQrviW8NmjFc8a9UI';
+  process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+  console.warn(
+    '[Supabase] Variáveis não configuradas. Defina EXPO_PUBLIC_SUPABASE_URL e EXPO_PUBLIC_SUPABASE_ANON_KEY (ou NEXT_PUBLIC_* em dev).'
+  );
+}
+
+export const supabase = createClient(SUPABASE_URL ?? '', SUPABASE_ANON_KEY ?? '', {
   auth: {
     storage: AsyncStorage,
     autoRefreshToken: true,

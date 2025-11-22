@@ -23,6 +23,25 @@ import { ProfileType, UserProfile } from '../types/profile';
 import { supabase } from '../lib/supabaseClient';
 import { adminSignupCode } from '../constants/appConfig';
 
+const LOGIN_TIMEOUT_MS = 15000;
+
+const runWithTimeout = <T,>(promise: Promise<T>): Promise<T> => {
+  return new Promise<T>((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      reject(new Error('login-timeout'));
+    }, LOGIN_TIMEOUT_MS);
+    promise
+      .then(value => {
+        clearTimeout(timeoutId);
+        resolve(value);
+      })
+      .catch(error => {
+        clearTimeout(timeoutId);
+        reject(error);
+      });
+  });
+};
+
 type Props = {
   onAuthComplete: (payload: AuthPayload) => Promise<void>;
 };
@@ -115,11 +134,13 @@ export const AuthScreen: React.FC<Props> = ({ onAuthComplete }) => {
     };
     try {
       setIsSubmitting(true);
-      await onAuthComplete({
-        mode,
-        profile: payload,
-        password
-      });
+      await runWithTimeout(
+        onAuthComplete({
+          mode,
+          profile: payload,
+          password
+        })
+      );
       if (isSignup && resolvedProfileType === 'steel') {
         Alert.alert(
           'Confirmação necessária',
@@ -127,6 +148,14 @@ export const AuthScreen: React.FC<Props> = ({ onAuthComplete }) => {
         );
       }
     } catch (error) {
+      const timeoutError = error instanceof Error && error.message === 'login-timeout';
+      if (timeoutError) {
+        Alert.alert(
+          'Tempo esgotado',
+          'Não conseguimos concluir o login. Verifique se selecionou o perfil correto e se seus dados estão atualizados. Caso o problema persista, entre em contato com o suporte.'
+        );
+        return;
+      }
       const message = error instanceof Error && error.message
         ? error.message
         : 'Não foi possível autenticar. Tente novamente em instantes.';
@@ -136,7 +165,6 @@ export const AuthScreen: React.FC<Props> = ({ onAuthComplete }) => {
       setIsSubmitting(false);
     }
   };
-
   const openResetModal = () => {
     setResetEmail(email.trim());
     setResetFeedback(null);

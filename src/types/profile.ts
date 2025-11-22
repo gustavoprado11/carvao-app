@@ -4,6 +4,8 @@ export type ProfileStatus = 'pending' | 'approved';
 
 export type SupplyAudience = 'pf' | 'pj' | 'both';
 
+export type SupplierDocumentStatus = 'missing' | 'pending' | 'approved' | 'rejected';
+
 export type UserProfile = {
   id?: string;
   type: ProfileType;
@@ -15,4 +17,11 @@ export type UserProfile = {
   averageDensityKg?: string;
   averageMonthlyVolumeM3?: string;
   status?: ProfileStatus;
+  documentStatus?: SupplierDocumentStatus;
+  documentUrl?: string;
+  documentStoragePath?: string;
+  documentUploadedAt?: string;
+  documentReviewedAt?: string;
+  documentReviewedBy?: string;
+  documentReviewNotes?: string;
 };

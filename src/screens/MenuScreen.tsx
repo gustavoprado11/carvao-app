@@ -26,16 +26,10 @@ import { profileLabels, useProfile } from '../context/ProfileContext';
 import { useTable } from '../context/TableContext';
 import { useSubscription } from '../context/SubscriptionContext';
 import { useNotifications } from '../context/NotificationContext';
-import {
-  SUBSCRIPTION_MANAGEMENT_LINK,
-  SUBSCRIPTION_PLANS,
-  SUBSCRIPTION_PRIVACY_LINK,
-  SUBSCRIPTION_TERMS_LINK
-} from '../constants/subscriptions';
 import type { MainTabParamList } from '../navigation/MainTabs';
 import type { SupplyAudience } from '../types/profile';
 import { deleteCurrentAccount } from '../services/accountService';
-import { presentCodeRedemptionSheetIOS } from 'react-native-iap';
+import { SupplierSubscriptionPlans } from '../components/SupplierSubscriptionPlans';
 
 type ProfileFormState = {
   email: string;
@@ -50,19 +44,7 @@ type ProfileFormState = {
 export const MenuScreen: React.FC = () => {
   const { profile, updateProfile, logout, refreshProfile } = useProfile();
   const { table, supplierTables, refreshSupplierTables, refreshTableData, loading: tablesLoading } = useTable();
-  const {
-    products: subscriptionProducts,
-    loadingProducts: loadingSubscriptionProducts,
-    purchaseInProgress,
-    restoreInProgress,
-    activeReceipt,
-    activeSubscription,
-    error: subscriptionError,
-    purchaseSubscription,
-    restorePurchases,
-    clearError,
-    supported: subscriptionSupported
-  } = useSubscription();
+  const { products: subscriptionProducts } = useSubscription();
   const {
     status: notificationStatus,
     supported: notificationsSupported,
@@ -75,8 +57,6 @@ export const MenuScreen: React.FC = () => {
   const [deletingAccount, setDeletingAccount] = useState(false);
   const [notificationLoading, setNotificationLoading] = useState(false);
   const [helpCenterVisible, setHelpCenterVisible] = useState(false);
-  const [redeemInProgress, setRedeemInProgress] = useState(false);
-  const [showAllPlans, setShowAllPlans] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const appName = Constants?.expoConfig?.name ?? 'Carvão Connect';
   const insets = useSafeAreaInsets();
@@ -157,45 +137,6 @@ export const MenuScreen: React.FC = () => {
     }
   }, [refreshProfile, refreshTableData]);
 
-  const subscriptionPlanOptions = useMemo(() => {
-    const options: Array<{
-      plan: (typeof SUBSCRIPTION_PLANS)[number];
-      product: (typeof subscriptionProducts)[number];
-    }> = [];
-    SUBSCRIPTION_PLANS.forEach(plan => {
-      const product = subscriptionProducts.find(item => item.productId === plan.productId);
-      if (product) {
-        options.push({ plan, product });
-      }
-    });
-    return options;
-  }, [subscriptionProducts]);
-
-  const activeSubscriptionSummary = useMemo(() => {
-    if (!activeSubscription) {
-      return null;
-    }
-    const match = subscriptionPlanOptions.find(option => option.product.productId === activeSubscription.productId);
-    if (!match) {
-      return {
-        productId: activeSubscription.productId,
-        renewalDate: activeSubscription.renewalDate,
-        product: undefined,
-        plan: undefined
-      };
-    }
-    return {
-      productId: activeSubscription.productId,
-      renewalDate: activeSubscription.renewalDate,
-      product: match.product,
-      plan: match.plan
-    };
-  }, [activeSubscription, subscriptionPlanOptions]);
-
-  const isSubscriptionLoading = loadingSubscriptionProducts;
-  const isSubscriptionActive = Boolean(activeReceipt);
-  const isPurchaseProcessing = purchaseInProgress;
-  const isAnySubscriptionBusy = purchaseInProgress || restoreInProgress;
 
   const profileDetailItems = useMemo(
     () => [
@@ -217,33 +158,6 @@ export const MenuScreen: React.FC = () => {
     ],
     [profile.email, profile.contact, profile.location]
   );
-
-  useEffect(() => {
-    if (subscriptionError) {
-      Alert.alert('Assinatura', subscriptionError, [{ text: 'OK', onPress: clearError }]);
-    }
-  }, [subscriptionError, clearError]);
-
-  const handleSubscribe = (productId: string) => {
-    if (!subscriptionSupported) {
-      Alert.alert('Assinatura', 'Instale o app em um build de desenvolvimento para concluir a assinatura.');
-      return;
-    }
-    const hasProductAvailable = subscriptionPlanOptions.some(option => option.product.productId === productId);
-    if (!hasProductAvailable) {
-      Alert.alert('Assinatura', 'Produto não disponível no momento. Tente novamente mais tarde.');
-      return;
-    }
-    void purchaseSubscription(productId);
-  };
-
-  const handleRestorePurchases = () => {
-    if (!subscriptionSupported) {
-      Alert.alert('Assinatura', 'Restaure suas compras em um build de desenvolvimento ou versão publicada.');
-      return;
-    }
-    void restorePurchases();
-  };
 
   const openExternalLink = (url: string) => {
     void Linking.openURL(url);
@@ -381,22 +295,6 @@ export const MenuScreen: React.FC = () => {
   const handleContactSupport = () => {
     openExternalLink('mailto:suporte@carvaoconnect.com.br?subject=Ajuda%20com%20assinaturas');
   };
-  const handleRedeemCode = async () => {
-    if (Platform.OS === 'ios') {
-      try {
-        setRedeemInProgress(true);
-        await presentCodeRedemptionSheetIOS();
-      } catch (error) {
-        Alert.alert('Resgatar código', 'Não foi possível abrir a tela de resgate agora.');
-        console.warn('[Subscription] redeem code failed', error);
-      } finally {
-        setRedeemInProgress(false);
-      }
-      return;
-    }
-    openExternalLink('https://play.google.com/redeem');
-  };
-
   const helpTopics = [
     {
       id: 'missing',
@@ -418,21 +316,6 @@ export const MenuScreen: React.FC = () => {
       action: handleContactSupport
     }
   ];
-
-  const formatBillingDate = (value?: number | null) => {
-    if (!value) {
-      return 'Disponível na loja';
-    }
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) {
-      return 'Disponível na loja';
-    }
-    return date.toLocaleDateString('pt-BR', {
-      day: '2-digit',
-      month: 'long',
-      year: 'numeric'
-    });
-  };
 
   const notificationStatusLabel =
     notificationStatus === 'granted'
@@ -626,162 +509,7 @@ export const MenuScreen: React.FC = () => {
                 </View>
               )}
             </View>
-            {isSupplierProfile ? (
-              <View style={styles.subscriptionCard}>
-                <View style={styles.subscriptionHeader}>
-                  <Text style={styles.subscriptionTitle}>Carvão Connect Pro</Text>
-                  {isSubscriptionActive ? (
-                    <View style={styles.subscriptionBadge}>
-                      <Text style={styles.subscriptionBadgeText}>Ativa</Text>
-                    </View>
-                  ) : null}
-                </View>
-                {subscriptionSupported ? (
-                  <>
-                    <Text style={styles.subscriptionDescription}>
-                      Escolha o plano ideal para fornecedores e desbloqueie alertas antecipados, relatórios exclusivos e
-                      suporte dedicado.
-                    </Text>
-                    {activeSubscriptionSummary ? (
-                      <View style={styles.subscriptionSummaryCard}>
-                        <Text style={styles.subscriptionSummaryLabel}>Sua assinatura</Text>
-                        <Text style={styles.subscriptionSummaryApp}>{appName}</Text>
-                        <Text style={styles.subscriptionSummaryPlan}>
-                          {activeSubscriptionSummary.plan?.title ?? 'Plano ativo'}
-                        </Text>
-                        <Text style={styles.subscriptionSummaryPrice}>
-                          {activeSubscriptionSummary.product?.priceString ?? 'Valor disponível na loja'}{' '}
-                          {activeSubscriptionSummary.plan?.billingPeriodLabel ? (
-                            <Text style={styles.subscriptionPricePeriod}>
-                              {activeSubscriptionSummary.plan?.billingPeriodLabel}
-                            </Text>
-                          ) : null}
-                        </Text>
-                        <Text style={styles.subscriptionSummaryNextBilling}>
-                          Próxima cobrança: {formatBillingDate(activeSubscriptionSummary.renewalDate)}
-                        </Text>
-                      </View>
-                    ) : null}
-                    {isSubscriptionLoading ? (
-                      <Text style={styles.subscriptionLoadingText}>Carregando planos...</Text>
-                    ) : subscriptionPlanOptions.length > 0 ? (
-                      <>
-                        {subscriptionPlanOptions
-                          .slice(0, activeSubscriptionSummary && !showAllPlans ? 1 : subscriptionPlanOptions.length)
-                          .map(({ plan, product }) => (
-                            <View
-                              key={plan.productId}
-                              style={[
-                                styles.subscriptionOption,
-                                activeSubscriptionSummary?.productId === plan.productId &&
-                                  styles.subscriptionOptionActive
-                              ]}
-                            >
-                              <Text style={styles.subscriptionOptionTitle}>{plan.title}</Text>
-                              <Text style={styles.subscriptionPrice}>
-                                {product.priceString ?? product.price}{' '}
-                                <Text style={styles.subscriptionPricePeriod}>{plan.billingPeriodLabel}</Text>
-                              </Text>
-                              {plan.priceNote ? (
-                                <Text style={styles.subscriptionEquivalent}>{plan.priceNote}</Text>
-                              ) : null}
-                              <Text style={styles.subscriptionOptionDescription}>{plan.description}</Text>
-                              <PrimaryButton
-                                label={plan.ctaLabel}
-                                onPress={() => handleSubscribe(product.productId)}
-                                disabled={isAnySubscriptionBusy || (isSubscriptionActive && plan.productId === activeSubscriptionSummary?.productId)}
-                                loading={isPurchaseProcessing}
-                                style={styles.subscriptionButton}
-                              />
-                            </View>
-                          ))}
-                        {activeSubscriptionSummary && subscriptionPlanOptions.length > 1 ? (
-                          <TouchableOpacity
-                            style={styles.togglePlansButton}
-                            onPress={() => setShowAllPlans(prev => !prev)}
-                          >
-                            <Text style={styles.togglePlansText}>
-                              {showAllPlans ? 'Ocultar outros planos' : 'Ver todos os planos'}
-                            </Text>
-                            <Ionicons
-                              name={showAllPlans ? 'chevron-up' : 'chevron-down'}
-                              size={18}
-                              color={colors.primary}
-                            />
-                          </TouchableOpacity>
-                        ) : null}
-                      </>
-                    ) : (
-                      <Text style={styles.subscriptionUnavailable}>
-                        Nenhum plano disponível. Confirme se as assinaturas já foram enviadas para revisão na App Store.
-                      </Text>
-                    )}
-                    <View style={styles.subscriptionManagement}>
-                      <View style={styles.subscriptionManagementCard}>
-                        <TouchableOpacity
-                          style={styles.managementButton}
-                          onPress={() => openExternalLink(SUBSCRIPTION_MANAGEMENT_LINK)}
-                        >
-                          <Ionicons name="settings-outline" size={16} color={colors.primary} />
-                          <Text style={styles.managementButtonText}>Gerenciar assinatura</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={[
-                            styles.managementButton,
-                            Platform.OS !== 'ios' && styles.managementButtonLast
-                          ]}
-                          onPress={handleRestorePurchases}
-                          disabled={restoreInProgress}
-                        >
-                          <Ionicons name="refresh-outline" size={16} color={colors.primary} />
-                          <Text
-                            style={[
-                              styles.managementButtonText,
-                              restoreInProgress && styles.subscriptionLinkDisabled
-                            ]}
-                          >
-                            {restoreInProgress ? 'Restaurando...' : 'Restaurar compras'}
-                          </Text>
-                        </TouchableOpacity>
-                        {Platform.OS === 'ios' ? (
-                          <TouchableOpacity
-                            style={[styles.managementButton, styles.managementButtonLast]}
-                            onPress={handleRedeemCode}
-                            disabled={redeemInProgress}
-                          >
-                            <Ionicons name="gift-outline" size={16} color={colors.primary} />
-                            <Text
-                              style={[
-                                styles.managementButtonText,
-                                redeemInProgress && styles.subscriptionLinkDisabled
-                              ]}
-                            >
-                              {redeemInProgress ? 'Abrindo...' : 'Resgatar código'}
-                            </Text>
-                          </TouchableOpacity>
-                        ) : null}
-                      </View>
-                    </View>
-                    <Text style={styles.subscriptionLegal}>
-                      Ao continuar você aceita os{' '}
-                      <Text style={styles.subscriptionLink} onPress={() => openExternalLink(SUBSCRIPTION_TERMS_LINK)}>
-                        Termos de serviço
-                      </Text>{' '}
-                      e a{' '}
-                      <Text style={styles.subscriptionLink} onPress={() => openExternalLink(SUBSCRIPTION_PRIVACY_LINK)}>
-                        Política de privacidade
-                      </Text>
-                      . A cobrança é renovada automaticamente ao final de cada período e você pode cancelar quando quiser nas
-                      configurações da loja.
-                    </Text>
-                  </>
-                ) : (
-                  <Text style={styles.subscriptionDescription}>
-                    Instale o app em um build de desenvolvimento ou publicação para visualizar e contratar planos.
-                  </Text>
-                )}
-              </View>
-            ) : null}
+            {isSupplierProfile ? <SupplierSubscriptionPlans appName={appName} /> : null}
           </View>
         )}
       </ScrollView>
@@ -990,177 +718,6 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.border
   },
-  subscriptionCard: {
-    ...glassCard,
-    gap: spacing.md
-  },
-  subscriptionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between'
-  },
-  subscriptionTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: colors.textPrimary
-  },
-  subscriptionBadge: {
-    backgroundColor: colors.primaryMuted,
-    borderRadius: spacing.sm,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs / 2
-  },
-  subscriptionBadgeText: {
-    color: colors.primary,
-    fontSize: 12,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.8
-  },
-  subscriptionPrice: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: colors.primary
-  },
-  subscriptionPricePeriod: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.textSecondary
-  },
-  subscriptionEquivalent: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: colors.textSecondary,
-    marginTop: spacing.xs / 2
-  },
-  subscriptionDescription: {
-    fontSize: 15,
-    color: colors.textSecondary,
-    lineHeight: 22
-  },
-  subscriptionLoadingText: {
-    fontSize: 14,
-    color: colors.textSecondary,
-    fontStyle: 'italic'
-  },
-  subscriptionOption: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: spacing.lg,
-    padding: spacing.md,
-    gap: spacing.sm,
-    backgroundColor: colors.surface,
-    marginTop: spacing.sm
-  },
-  subscriptionOptionActive: {
-    borderColor: '#DCEAFF',
-    backgroundColor: '#F7FAFF',
-    shadowColor: 'rgba(0,0,0,0.04)',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 1,
-    shadowRadius: 12,
-    elevation: 2
-  },
-  subscriptionOptionTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: colors.textPrimary
-  },
-  subscriptionOptionDescription: {
-    fontSize: 13,
-    color: colors.textSecondary,
-    lineHeight: 20
-  },
-  subscriptionButton: {
-    marginTop: spacing.xs
-  },
-  subscriptionUnavailable: {
-    fontSize: 14,
-    color: colors.textSecondary,
-    marginTop: spacing.sm
-  },
-  subscriptionSummaryCard: {
-    borderWidth: 1,
-    borderColor: '#DCEAFF',
-    borderRadius: spacing.lg,
-    padding: spacing.md,
-    backgroundColor: '#F5F8FF',
-    marginTop: spacing.sm,
-    gap: spacing.xs
-  },
-  subscriptionSummaryLabel: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: colors.textSecondary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.8
-  },
-  subscriptionSummaryApp: {
-    fontSize: 15,
-    color: colors.textSecondary
-  },
-  subscriptionSummaryPlan: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: colors.textPrimary
-  },
-  subscriptionSummaryPrice: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: colors.primary
-  },
-  subscriptionSummaryNextBilling: {
-    fontSize: 13,
-    color: colors.textSecondary
-  },
-  subscriptionManagement: {
-    marginTop: spacing.md
-  },
-  subscriptionManagementCard: {
-    borderRadius: spacing.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    gap: spacing.sm
-  },
-  managementButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    paddingVertical: spacing.sm,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border
-  },
-  managementButtonLast: {
-    borderBottomWidth: 0
-  },
-  managementButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.primary
-  },
-  togglePlansButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.xs,
-    marginTop: spacing.sm
-  },
-  togglePlansText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.primary
-  },
-  subscriptionLink: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.primary
-  },
-  subscriptionLinkDisabled: {
-    color: colors.textSecondary
-  },
   helpCenterContainer: {
     flex: 1,
     backgroundColor: colors.background
@@ -1260,11 +817,6 @@ const styles = StyleSheet.create({
   helpSecondaryButtonText: {
     color: colors.primary,
     fontWeight: '600'
-  },
-  subscriptionLegal: {
-    fontSize: 11,
-    color: colors.textSecondary,
-    lineHeight: 18
   },
   sectionHeader: {
     flexDirection: 'row',
