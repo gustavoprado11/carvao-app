@@ -220,7 +220,12 @@ const App: React.FC = () => {
 
     if (metadataType && metadataType !== normalizedProfile.type) {
       const profileLabel = getProfileLabel(metadataType);
-      throw new Error(`Este e-mail está cadastrado como ${profileLabel}. Selecione o perfil correspondente para entrar.`);
+      await supabase.auth.signOut().catch(signOutError =>
+        console.warn('[Auth] signOut after metadata/profile type mismatch failed', signOutError)
+      );
+      throw new Error(
+        `Este e-mail está cadastrado como ${profileLabel}. Selecione o perfil correspondente para entrar.`
+      );
     }
 
     const existingProfile = await fetchProfileByEmail(email);
@@ -228,7 +233,12 @@ const App: React.FC = () => {
     if (existingProfile) {
       if (existingProfile.type !== normalizedProfile.type) {
         const profileLabel = getProfileLabel(existingProfile.type);
-        throw new Error(`Este e-mail está cadastrado como ${profileLabel}. Selecione o perfil correspondente para entrar.`);
+        await supabase.auth.signOut().catch(signOutError =>
+          console.warn('[Auth] signOut after profile type mismatch failed', signOutError)
+        );
+        throw new Error(
+          `Este e-mail está cadastrado como ${profileLabel}. Selecione o perfil correspondente para entrar.`
+        );
       }
 
       const mergedProfile: UserProfile = {
