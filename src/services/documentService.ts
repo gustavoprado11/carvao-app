@@ -1,6 +1,7 @@
 import * as FileSystem from 'expo-file-system';
 import { supabase } from '../lib/supabaseClient';
 import { UserProfile } from '../types/profile';
+import { DocumentItem } from '../types/document';
 
 const DOCUMENT_BUCKET = 'supplier_documents';
 
@@ -98,4 +99,80 @@ export const uploadSupplierDocument = async (
     path: resolvedPath,
     publicUrl
   };
+};
+
+type DocumentRecord = {
+  id: string;
+  type_id: string;
+  name: string;
+  description?: string | null;
+  status?: string | null;
+  updated_at?: string | null;
+  document_url?: string | null;
+  document_storage_path?: string | null;
+  owner_profile_id?: string | null;
+  owner?: {
+    id?: string | null;
+    email?: string | null;
+    company?: string | null;
+    contact?: string | null;
+    location?: string | null;
+  } | null;
+};
+
+const mapSharedDocument = (record: DocumentRecord): DocumentItem => {
+  return {
+    id: record.id,
+    typeId: record.type_id,
+    title: record.name,
+    description: record.description ?? undefined,
+    status: (record.status as DocumentItem['status']) ?? 'shared',
+    updatedAt: record.updated_at ?? undefined,
+    url: record.document_url ?? undefined,
+    path: record.document_storage_path ?? undefined,
+    supplierId: record.owner?.id ?? record.owner_profile_id ?? undefined,
+    supplierName: record.owner?.company ?? record.owner?.email ?? undefined,
+    supplierLocation: record.owner?.location ?? undefined
+  };
+};
+
+export const fetchDocumentsSharedWith = async (profileId: string): Promise<DocumentItem[]> => {
+  const { data: shareRows, error: shareError } = await supabase
+    .from('document_shares')
+    .select('document_id')
+    .eq('shared_with_profile_id', profileId)
+    .is('revoked_at', null);
+
+  if (shareError || !shareRows || shareRows.length === 0) {
+    if (shareError) {
+      console.warn('[Supabase] fetchDocumentsSharedWith shares failed', shareError);
+    }
+    return [];
+  }
+
+  const documentIds = Array.from(
+    new Set(
+      shareRows
+        .map(row => (row as { document_id?: string | null }).document_id)
+        .filter((id): id is string => Boolean(id))
+    )
+  );
+
+  if (!documentIds.length) {
+    return [];
+  }
+
+  const { data, error } = await supabase
+    .from('documents')
+    .select(
+      'id, type_id, name, description, status, updated_at, document_url, document_storage_path, owner_profile_id, owner:owner_profile_id(id, email, company, contact, location)'
+    )
+    .in('id', documentIds);
+
+  if (error || !data) {
+    console.warn('[Supabase] fetchDocumentsSharedWith documents failed', error);
+    return [];
+  }
+
+  return (data as DocumentRecord[]).map(mapSharedDocument);
 };

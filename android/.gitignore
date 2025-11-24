@@ -14,7 +14,3 @@ local.properties
 
 # Bundle artifacts
 *.jsbundle
-
-# Keystore (do not version control release keys)
-app/*.keystore
-app/*.jks

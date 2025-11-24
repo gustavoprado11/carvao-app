@@ -18,6 +18,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
 import { useNavigation, type NavigationProp } from '@react-navigation/native';
 import { useProfile } from '../context/ProfileContext';
 import { SupplierTablePreview, TableRow, useTable } from '../context/TableContext';
@@ -27,6 +29,7 @@ import { useSubscription } from '../context/SubscriptionContext';
 import { colors, spacing } from '../theme';
 import type { MainTabParamList } from '../navigation/MainTabs';
 import { supabase } from '../lib/supabaseClient';
+import { extractPriceTableFromFile } from '../services/priceTableAiService';
 
 const unitOptions = [
   { label: 'metro', value: 'm3' as const },
@@ -105,6 +108,7 @@ export const TablesScreen: React.FC = () => {
     updateNotes,
     updatePaymentTerms,
     updateScheduleType,
+    applyImportedData,
     toggleActive,
     saveTable,
     supplierTables,
@@ -121,6 +125,10 @@ export const TablesScreen: React.FC = () => {
   const [activeChatTable, setActiveChatTable] = useState<SupplierTablePreview | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [compactActions, setCompactActions] = useState<Record<string, boolean>>({});
+  const [isImporting, setIsImporting] = useState(false);
+  const [importStatus, setImportStatus] = useState<string | null>(null);
+  const [importSheetVisible, setImportSheetVisible] = useState(false);
+  const [importingFileName, setImportingFileName] = useState<string | null>(null);
   const headerMeasurementsRef = useRef<Record<string, { header?: number; heading?: number; actions?: number }>>({});
   const isSubscriptionActive = Boolean(activeReceipt);
   const shouldShowSubscriptionGate = isSupplierProfile && !isSubscriptionActive && !__DEV__;
@@ -293,6 +301,134 @@ export const TablesScreen: React.FC = () => {
     navigation.navigate('Menu');
   };
 
+  const handleProcessImportedFile = useCallback(
+    async (file: { uri: string; name: string; type: string }) => {
+      try {
+        setImportSheetVisible(false);
+        setImportStatus('Lendo tabela com ajuda da IA...');
+        setImportingFileName(file.name);
+        setIsImporting(true);
+        const aiData = await extractPriceTableFromFile(file);
+        applyImportedData(aiData);
+        Alert.alert(
+          'Tabela importada',
+          'Revisamos a tabela pra você. Confira as informações antes de salvar.'
+        );
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : 'Não conseguimos ler sua tabela. Tente tirar uma foto mais nítida ou enviar o arquivo diretamente.';
+        Alert.alert('Erro na leitura', message);
+        console.warn('[Tables] import failed', error);
+      } finally {
+        setIsImporting(false);
+        setImportStatus(null);
+        setImportingFileName(null);
+      }
+    },
+    [applyImportedData]
+  );
+
+  const handlePickFromCamera = useCallback(async () => {
+    setImportSheetVisible(false);
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert('Permissão necessária', 'Autorize o acesso à câmera para tirar a foto da tabela.');
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.85
+    });
+    if (result.canceled) {
+      return;
+    }
+    const asset = result.assets?.[0];
+    if (asset?.uri) {
+      void handleProcessImportedFile({
+        uri: asset.uri,
+        name: asset.fileName ?? 'tabela-precos.jpg',
+        type: asset.mimeType ?? 'image/jpeg'
+      });
+    }
+  }, [handleProcessImportedFile]);
+
+  const handlePickFromGallery = useCallback(async () => {
+    setImportSheetVisible(false);
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert('Permissão necessária', 'Autorize o acesso à galeria para escolher sua tabela.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.9
+    });
+    if (result.canceled) {
+      return;
+    }
+    const asset = result.assets?.[0];
+    if (asset?.uri) {
+      void handleProcessImportedFile({
+        uri: asset.uri,
+        name: asset.fileName ?? 'tabela-precos.jpg',
+        type: asset.mimeType ?? 'image/jpeg'
+      });
+    }
+  }, [handleProcessImportedFile]);
+
+  const handlePickDocument = useCallback(async () => {
+    setImportSheetVisible(false);
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        multiple: false,
+        type: ['application/pdf', 'image/*'],
+        copyToCacheDirectory: true
+      });
+      if (result.canceled) {
+        return;
+      }
+      const asset = result.assets?.[0];
+      if (asset?.uri) {
+        void handleProcessImportedFile({
+          uri: asset.uri,
+          name: asset.name ?? 'tabela-precos.pdf',
+          type: asset.mimeType ?? 'application/pdf'
+        });
+      }
+    } catch (error) {
+      Alert.alert(
+        'Importar tabela',
+        'Não foi possível selecionar o arquivo agora. Tente novamente em instantes.'
+      );
+      console.warn('[Tables] pick document failed', error);
+    }
+  }, [handleProcessImportedFile]);
+
+  const openImportSheet = () => {
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: ['Tirar foto', 'Escolher da galeria', 'Anexar arquivo (PDF ou imagem)', 'Cancelar'],
+          cancelButtonIndex: 3,
+          title: 'Importar tabela automaticamente'
+        },
+        index => {
+          if (index === 0) {
+            void handlePickFromCamera();
+          } else if (index === 1) {
+            void handlePickFromGallery();
+          } else if (index === 2) {
+            void handlePickDocument();
+          }
+        }
+      );
+      return;
+    }
+    setImportSheetVisible(true);
+  };
+
   const handleOpenConversation = () => {
     navigation.navigate('Conversas');
   };
@@ -403,6 +539,24 @@ export const TablesScreen: React.FC = () => {
           <View style={styles.metaSegmentedWrapper}>
             <SegmentedControl value={table.scheduleType} onChange={updateScheduleType} options={schedulingOptions} />
           </View>
+        </View>
+
+        <View style={[styles.blockCard, styles.importCard, isCompactLayout && styles.blockCardCompact]}>
+          <View style={styles.blockHeader}>
+            <View style={{ flex: 1, gap: spacing.xs / 2 }}>
+              <Text style={styles.blockTitle}>Importar tabela automaticamente</Text>
+              <Text style={styles.blockSubtitle}>
+                Tire uma foto ou envie o arquivo da sua tabela. Nós preenchemos os campos pra você revisar.
+              </Text>
+            </View>
+            <Ionicons name="cloud-upload-outline" size={22} color={colors.primary} />
+          </View>
+          <PrimaryButton
+            label="Importar tabela"
+            onPress={openImportSheet}
+            disabled={isImporting}
+            style={styles.importButton}
+          />
         </View>
 
         <View style={[styles.blockCard, isCompactLayout && styles.blockCardCompact]}>
@@ -605,7 +759,12 @@ export const TablesScreen: React.FC = () => {
         />
       </View>
 
-      <PrimaryButton label="Salvar tabela" onPress={handleSaveTable} disabled={isSavingTable} loading={isSavingTable} />
+      <PrimaryButton
+        label="Salvar tabela"
+        onPress={handleSaveTable}
+        disabled={isSavingTable || isImporting}
+        loading={isSavingTable}
+      />
     </>
   );
 
@@ -755,6 +914,47 @@ export const TablesScreen: React.FC = () => {
           <PrimaryButton label="Abrir conversa" onPress={handleOpenConversation} style={styles.stickyChatButton} />
         </View>
       ) : null}
+      <Modal
+        visible={importSheetVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setImportSheetVisible(false)}
+      >
+        <TouchableOpacity style={styles.sheetBackdrop} activeOpacity={1} onPress={() => setImportSheetVisible(false)} />
+        <View style={styles.sheetContainer}>
+          <Text style={styles.sheetTitle}>Importar tabela automaticamente</Text>
+          <Text style={styles.sheetSubtitle}>
+            Tire uma foto ou envie o arquivo da sua tabela. Nós preenchemos os campos pra você revisar.
+          </Text>
+          <TouchableOpacity style={styles.sheetOption} onPress={() => void handlePickFromCamera()}>
+            <Ionicons name="camera-outline" size={18} color={colors.textPrimary} />
+            <Text style={styles.sheetOptionText}>Tirar foto</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.sheetOption} onPress={() => void handlePickFromGallery()}>
+            <Ionicons name="image-outline" size={18} color={colors.textPrimary} />
+            <Text style={styles.sheetOptionText}>Escolher da galeria</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.sheetOption} onPress={() => void handlePickDocument()}>
+            <Ionicons name="document-outline" size={18} color={colors.textPrimary} />
+            <Text style={styles.sheetOptionText}>Anexar arquivo (PDF ou imagem)</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.sheetCancel} onPress={() => setImportSheetVisible(false)}>
+            <Text style={styles.sheetCancelText}>Cancelar</Text>
+          </TouchableOpacity>
+        </View>
+      </Modal>
+      <Modal visible={isImporting} transparent animationType="fade" onRequestClose={() => undefined}>
+        <View style={styles.importOverlay}>
+          <View style={styles.importOverlayCard}>
+            <ActivityIndicator size="large" color={colors.primary} />
+            <Text style={styles.importOverlayTitle}>{importStatus ?? 'Lendo tabela com ajuda da IA...'}</Text>
+            {importingFileName ? (
+              <Text style={styles.importOverlaySubtitle}>{importingFileName}</Text>
+            ) : null}
+            <Text style={styles.importOverlaySubtitle}>Isso pode levar alguns segundos.</Text>
+          </View>
+        </View>
+      </Modal>
       <Modal
         visible={firstSetupModalVisible}
         transparent
@@ -981,6 +1181,13 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: colors.textSecondary,
     lineHeight: 20
+  },
+  importCard: {
+    borderStyle: 'solid',
+    borderColor: colors.border
+  },
+  importButton: {
+    marginTop: spacing.sm
   },
   inputWrapper: {
     flexDirection: 'row',
@@ -1546,5 +1753,87 @@ const styles = StyleSheet.create({
   },
   stickySpacer: {
     height: spacing.xxxl * 1.2
+  },
+  sheetBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(15,23,42,0.35)'
+  },
+  sheetContainer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: spacing.xl,
+    borderTopRightRadius: spacing.xl,
+    padding: spacing.lg,
+    gap: spacing.sm,
+    shadowColor: 'rgba(0,0,0,0.16)',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 1,
+    shadowRadius: 14,
+    elevation: 6
+  },
+  sheetTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.textPrimary
+  },
+  sheetSubtitle: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    lineHeight: 20
+  },
+  sheetOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    borderRadius: spacing.lg,
+    backgroundColor: '#F8FAFF',
+    borderWidth: 1,
+    borderColor: colors.border
+  },
+  sheetOptionText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.textPrimary
+  },
+  sheetCancel: {
+    alignItems: 'center',
+    paddingVertical: spacing.sm
+  },
+  sheetCancelText: {
+    color: colors.textSecondary,
+    fontWeight: '600'
+  },
+  importOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15,23,42,0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: spacing.xl
+  },
+  importOverlayCard: {
+    width: '100%',
+    backgroundColor: colors.surface,
+    borderRadius: spacing.lg,
+    padding: spacing.lg,
+    alignItems: 'center',
+    gap: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.border
+  },
+  importOverlayTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.textPrimary,
+    textAlign: 'center'
+  },
+  importOverlaySubtitle: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    textAlign: 'center'
   }
 });

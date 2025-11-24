@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Modal,
@@ -18,7 +18,7 @@ import { PrimaryButton } from '../components/PrimaryButton';
 import { useProfile } from '../context/ProfileContext';
 import { DOCUMENT_REQUIREMENTS } from '../constants/documentTypes';
 import type { DocumentItem, DocumentStatus } from '../types/document';
-import { uploadSupplierDocument } from '../services/documentService';
+import { uploadSupplierDocument, fetchDocumentsSharedWith } from '../services/documentService';
 import { fetchProfilesByType } from '../services/profileService';
 import type { UserProfile } from '../types/profile';
 
@@ -107,37 +107,32 @@ export const DocumentsScreen: React.FC = () => {
   const [selectedSteelIds, setSelectedSteelIds] = useState<Set<string>>(new Set());
   const [loadingSteel, setLoadingSteel] = useState(false);
 
-  const [sharedDocs] = useState<DocumentItem[]>(() => [
-    {
-      id: 'shared-dcf',
-      typeId: 'dcf',
-      title: 'DCF',
-      description: 'Declaração de Colheita de Florestas Plantadas',
-      status: 'shared',
-      updatedAt: new Date().toISOString(),
-      sharedWith: ['Sua siderúrgica'],
-      url: '#',
-      path: '#',
-      // supplier metadata (mock)
-      supplierId: 'supplier-1',
-      supplierName: 'Fornecedor Bandeirante',
-      supplierLocation: 'Minas Gerais'
-    } as DocumentItem & { supplierId: string; supplierName: string; supplierLocation?: string },
-    {
-      id: 'shared-dae',
-      typeId: 'dae',
-      title: 'DAE (Taxa Florestal e Expediente)',
-      status: 'shared',
-      updatedAt: new Date().toISOString(),
-      sharedWith: ['Sua siderúrgica'],
-      url: '#',
-      path: '#',
-      supplierId: 'supplier-1',
-      supplierName: 'Fornecedor Bandeirante',
-      supplierLocation: 'Minas Gerais'
-    } as DocumentItem & { supplierId: string; supplierName: string; supplierLocation?: string }
-  ]);
+  const [sharedDocs, setSharedDocs] = useState<DocumentItem[]>([]);
   const [selectedSupplierId, setSelectedSupplierId] = useState<string | null>(null);
+  const [loadingShared, setLoadingShared] = useState(false);
+
+  useEffect(() => {
+    const loadShared = async () => {
+      if (profile.type !== 'steel') {
+        return;
+      }
+      if (!profile.id) {
+        console.warn('[Documents] steel profile sem id para buscar documentos compartilhados.');
+        return;
+      }
+      try {
+        setLoadingShared(true);
+        const docs = await fetchDocumentsSharedWith(profile.id);
+        setSharedDocs(docs);
+      } catch (error) {
+        console.warn('[Documents] load shared documents failed', error);
+        Alert.alert('Documentos', 'Não foi possível carregar os documentos compartilhados agora.');
+      } finally {
+        setLoadingShared(false);
+      }
+    };
+    loadShared();
+  }, [profile.id, profile.type]);
 
   const updateDocumentList = (
     setter: React.Dispatch<React.SetStateAction<DocumentItem[]>>,
@@ -299,7 +294,11 @@ export const DocumentsScreen: React.FC = () => {
       <Text style={styles.subtitle}>
         Aqui ficam os documentos compartilhados pelos fornecedores. Toque em um fornecedor para ver tudo que ele enviou.
       </Text>
-      {sharedDocs.length === 0 ? (
+      {loadingShared ? (
+        <View style={styles.emptyCard}>
+          <Text style={styles.emptyText}>Carregando documentos...</Text>
+        </View>
+      ) : sharedDocs.length === 0 ? (
         <View style={styles.emptyCard}>
           <Text style={styles.emptyTitle}>Nenhum documento disponível</Text>
           <Text style={styles.emptyText}>Quando um fornecedor compartilhar algo, ele aparecerá aqui.</Text>

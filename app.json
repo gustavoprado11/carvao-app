@@ -37,6 +37,16 @@
     "plugins": [
       "expo-font",
       [
+        "expo-build-properties",
+        {
+          "ios": {
+            "newArchEnabled": true
+          }
+        }
+      ],
+      "expo-image-picker",
+      "expo-document-picker",
+      [
         "expo-notifications",
         {
           "icon": "./assets/icon-android.png",

@@ -53,12 +53,13 @@ const toDomainProfile = (record: ProfileRecord): UserProfile => {
 };
 
 export const fetchProfileByEmail = async (email: string): Promise<UserProfile | null> => {
+  const normalizedEmail = email.trim().toLowerCase();
   const { data, error } = await supabase
     .from(TABLE_NAME)
     .select(
       'id, email, type, company, contact, location, supply_audience, average_density_kg, average_volume_m3, status, document_status, document_url, document_storage_path, document_uploaded_at, document_reviewed_at, document_reviewed_by, document_review_notes'
     )
-    .eq('email', email.toLowerCase())
+    .ilike('email', normalizedEmail)
     .maybeSingle();
 
   if (error) {

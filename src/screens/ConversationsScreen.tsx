@@ -20,7 +20,7 @@ import { useProfile } from '../context/ProfileContext';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { TextField } from '../components/TextField';
 import { colors, spacing } from '../theme';
-import { fetchProfilesByType, fetchSupplierProfilesByEmails } from '../services/profileService';
+import { fetchProfileByEmail, fetchProfilesByType, fetchSupplierProfilesByEmails } from '../services/profileService';
 import { fetchConversationsByProfile, startConversation } from '../services/conversationService';
 import type { ConversationPreview } from '../types/conversation';
 import type { UserProfile } from '../types/profile';
@@ -114,6 +114,7 @@ export const ConversationsScreen: React.FC = () => {
   const [steelPartners, setSteelPartners] = useState<UserProfile[]>([]);
   const [cachedSnapshot, setCachedSnapshot] = useState<ConversationPreview[]>([]);
   const [supplierPartners, setSupplierPartners] = useState<UserProfile[]>([]);
+  const [supplierProfilesByEmail, setSupplierProfilesByEmail] = useState<Record<string, UserProfile>>({});
   const [isNewConversationVisible, setIsNewConversationVisible] = useState(false);
   const [selectedSteelEmail, setSelectedSteelEmail] = useState<string | null>(null);
   const [initialMessage, setInitialMessage] = useState('');
@@ -185,6 +186,11 @@ export const ConversationsScreen: React.FC = () => {
     loadSteelPartners();
   }, [profile.type]);
 
+  const findPartnerByEmail = useCallback((partners: UserProfile[], email: string) => {
+    const normalizedEmail = email?.toLowerCase() ?? '';
+    return partners.find(item => item.email?.toLowerCase() === normalizedEmail);
+  }, []);
+
   React.useEffect(() => {
     const loadSupplierPartners = async () => {
       if (profile.type !== 'steel') {
@@ -205,26 +211,132 @@ export const ConversationsScreen: React.FC = () => {
       }
 
       const partners = await fetchSupplierProfilesByEmails(supplierEmails);
-      const sorted = partners.slice().sort((a, b) => {
+      const resolvedPartners = [...partners];
+
+      if (partners.length < supplierEmails.length) {
+        const missingEmails = supplierEmails.filter(
+          email => !partners.some(partner => partner.email?.toLowerCase() === email)
+        );
+        const missingProfiles = await Promise.all(
+          missingEmails.map(async email => {
+            const profile = await fetchProfileByEmail(email);
+            return profile;
+          })
+        );
+        resolvedPartners.push(...missingProfiles.filter((profile): profile is UserProfile => Boolean(profile)));
+      }
+
+      const partnersMissingName = resolvedPartners.filter(
+        partner => !(partner.company?.trim() || partner.contact?.trim())
+      );
+
+      if (partnersMissingName.length > 0) {
+        const refreshedProfiles = await Promise.all(
+          partnersMissingName.map(async partner => {
+            const profile = await fetchProfileByEmail(partner.email);
+            return profile ?? partner;
+          })
+        );
+
+        refreshedProfiles.forEach(profile => {
+          const existingIndex = resolvedPartners.findIndex(
+            item => item.email?.toLowerCase() === profile?.email?.toLowerCase()
+          );
+          if (existingIndex >= 0 && profile) {
+            resolvedPartners[existingIndex] = profile;
+          }
+        });
+      }
+
+      const missingAfterAttempts = supplierEmails.filter(
+        email => !resolvedPartners.some(partner => partner.email?.toLowerCase() === email)
+      );
+
+      if (missingAfterAttempts.length > 0) {
+        const individuallyFetched = await Promise.all(
+          missingAfterAttempts.map(async email => {
+            const profile = await fetchProfileByEmail(email);
+            return profile;
+          })
+        );
+        individuallyFetched
+          .filter((profile): profile is UserProfile => Boolean(profile))
+          .forEach(profile => {
+            resolvedPartners.push(profile);
+          });
+      }
+
+      const sorted = resolvedPartners.slice().sort((a, b) => {
         const nameA = (a.company ?? a.contact ?? a.email).toLowerCase();
         const nameB = (b.company ?? b.contact ?? b.email).toLowerCase();
         return nameA.localeCompare(nameB);
       });
       setSupplierPartners(sorted);
+      setSupplierProfilesByEmail(prev => {
+        const next = { ...prev };
+        resolvedPartners.forEach(partner => {
+          if (partner.email) {
+            next[partner.email.trim().toLowerCase()] = partner;
+          }
+        });
+        return next;
+      });
     };
 
     loadSupplierPartners();
   }, [profile.type, conversations]);
 
-  const findPartnerByEmail = useCallback((partners: UserProfile[], email: string) => {
-    const normalizedEmail = email?.toLowerCase() ?? '';
-    return partners.find(item => item.email?.toLowerCase() === normalizedEmail);
-  }, []);
+  React.useEffect(() => {
+    const hydrateMissingSupplierProfiles = async () => {
+      if (profile.type !== 'steel') {
+        return;
+      }
+
+      const supplierEmails = Array.from(
+        new Set(
+          conversations
+            .map(conversation => conversation.supplierEmail?.trim().toLowerCase())
+            .filter((value): value is string => Boolean(value))
+        )
+      );
+
+      const missingEmails = supplierEmails.filter(email => {
+        const fromList = findPartnerByEmail(supplierPartners, email);
+        const fromCache = supplierProfilesByEmail[email];
+        const partner = fromList ?? fromCache;
+        return !partner || !(partner.company?.trim() || partner.contact?.trim());
+      });
+
+      if (missingEmails.length === 0) {
+        return;
+      }
+
+      const fetchedProfiles = await Promise.all(
+        missingEmails.map(async email => {
+          const profile = await fetchProfileByEmail(email);
+          return profile;
+        })
+      );
+
+      setSupplierProfilesByEmail(prev => {
+        const next = { ...prev };
+        fetchedProfiles.forEach(profile => {
+          if (profile?.email) {
+            next[profile.email.trim().toLowerCase()] = profile;
+          }
+        });
+        return next;
+      });
+    };
+
+    hydrateMissingSupplierProfiles();
+  }, [profile.type, conversations, supplierPartners, supplierProfilesByEmail, findPartnerByEmail]);
 
   const resolveCounterpartName = useCallback(
     (conversation: ConversationPreview): string => {
-      const counterpartEmail =
+      const counterpartEmailRaw =
         profile.type === 'supplier' ? conversation.steelEmail : conversation.supplierEmail;
+      const counterpartEmail = counterpartEmailRaw?.trim().toLowerCase() ?? '';
 
       const formatFromProfile = (partner?: UserProfile) => {
         if (!partner) {
@@ -245,7 +357,8 @@ export const ConversationsScreen: React.FC = () => {
           return label;
         }
       } else if (profile.type === 'steel') {
-        const partner = findPartnerByEmail(supplierPartners, counterpartEmail);
+        const partnerFromList = findPartnerByEmail(supplierPartners, counterpartEmail);
+        const partner = partnerFromList ?? supplierProfilesByEmail[counterpartEmail];
         const label = formatFromProfile(partner);
         if (label) {
           return label;
@@ -253,11 +366,11 @@ export const ConversationsScreen: React.FC = () => {
       }
 
       if (profile.type === 'steel') {
-        return counterpartEmail || 'Fornecedor';
+        return counterpartEmailRaw || 'Fornecedor';
       }
-      return counterpartEmail || 'Siderúrgica';
+      return counterpartEmailRaw || 'Siderúrgica';
     },
-    [profile.type, steelPartners, supplierPartners, findPartnerByEmail]
+    [profile.type, steelPartners, supplierPartners, supplierProfilesByEmail, findPartnerByEmail]
   );
 
   const resolveSupplyInfo = useCallback(

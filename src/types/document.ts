@@ -11,4 +11,7 @@ export type DocumentItem = {
   url?: string;
   path?: string;
   sizeBytes?: number;
+  supplierId?: string;
+  supplierName?: string;
+  supplierLocation?: string;
 };

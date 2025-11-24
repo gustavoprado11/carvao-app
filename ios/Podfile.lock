@@ -3,6 +3,9 @@ PODS:
     - ExpoModulesCore
   - EXConstants (18.0.10):
     - ExpoModulesCore
+  - EXImageLoader (4.7.0):
+    - ExpoModulesCore
+    - React-Core
   - EXJSONUtils (0.15.0)
   - EXManifests (1.0.8):
     - ExpoModulesCore
@@ -212,6 +215,8 @@ PODS:
     - ExpoModulesCore
   - ExpoFont (14.0.9):
     - ExpoModulesCore
+  - ExpoImagePicker (15.0.7):
+    - ExpoModulesCore
   - ExpoKeepAwake (15.0.7):
     - ExpoModulesCore
   - ExpoLinearGradient (15.0.7):
@@ -295,7 +300,7 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
-  - openiap (1.2.32)
+  - openiap (1.2.39)
   - RCTDeprecation (0.81.5)
   - RCTRequired (0.81.5)
   - RCTTypeSafety (0.81.5):
@@ -2235,6 +2240,7 @@ PODS:
 DEPENDENCIES:
   - EXApplication (from `../node_modules/expo-application/ios`)
   - EXConstants (from `../node_modules/expo-constants/ios`)
+  - EXImageLoader (from `../node_modules/expo-image-loader/ios`)
   - EXJSONUtils (from `../node_modules/expo-json-utils/ios`)
   - EXManifests (from `../node_modules/expo-manifests/ios`)
   - EXNotifications (from `../node_modules/expo-notifications/ios`)
@@ -2247,6 +2253,7 @@ DEPENDENCIES:
   - ExpoDocumentPicker (from `../node_modules/expo-document-picker/ios`)
   - ExpoFileSystem (from `../node_modules/expo-file-system/ios`)
   - ExpoFont (from `../node_modules/expo-font/ios`)
+  - ExpoImagePicker (from `../node_modules/expo-image-picker/ios`)
   - ExpoKeepAwake (from `../node_modules/expo/node_modules/expo-keep-awake/ios`)
   - ExpoLinearGradient (from `../node_modules/expo-linear-gradient/ios`)
   - ExpoLinking (from `../node_modules/expo-linking/ios`)
@@ -2338,6 +2345,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/expo-application/ios"
   EXConstants:
     :path: "../node_modules/expo-constants/ios"
+  EXImageLoader:
+    :path: "../node_modules/expo-image-loader/ios"
   EXJSONUtils:
     :path: "../node_modules/expo-json-utils/ios"
   EXManifests:
@@ -2362,6 +2371,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/expo-file-system/ios"
   ExpoFont:
     :path: "../node_modules/expo-font/ios"
+  ExpoImagePicker:
+    :path: "../node_modules/expo-image-picker/ios"
   ExpoKeepAwake:
     :path: "../node_modules/expo/node_modules/expo-keep-awake/ios"
   ExpoLinearGradient:
@@ -2527,6 +2538,7 @@ EXTERNAL SOURCES:
 SPEC CHECKSUMS:
   EXApplication: 296622817d459f46b6c5fe8691f4aac44d2b79e7
   EXConstants: fd688cef4e401dcf798a021cfb5d87c890c30ba3
+  EXImageLoader: 1fe96c70cdc78bedc985ec4b1fab5dd8e67dc38b
   EXJSONUtils: 1d3e4590438c3ee593684186007028a14b3686cd
   EXManifests: 224345a575fca389073c416297b6348163f28d1a
   EXNotifications: 7cff475adb5d7a255a9ea46bbd2589cb3b454506
@@ -2539,6 +2551,7 @@ SPEC CHECKSUMS:
   ExpoDocumentPicker: 2200eefc2817f19315fa18f0147e0b80ece86926
   ExpoFileSystem: 77157a101e03150a4ea4f854b4dd44883c93ae0a
   ExpoFont: cf9d90ec1d3b97c4f513211905724c8171f82961
+  ExpoImagePicker: 517a47896adf5d55d0a1c159e5d1e312af12e57c
   ExpoKeepAwake: 1a2e820692e933c94a565ec3fbbe38ac31658ffe
   ExpoLinearGradient: a464898cb95153125e3b81894fd479bcb1c7dd27
   ExpoLinking: f051f28e50ea9269ff539317c166adec81d9342d
@@ -2548,7 +2561,7 @@ SPEC CHECKSUMS:
   hermes-engine: 9f4dfe93326146a1c99eb535b1cb0b857a3cd172
   NitroIap: 73c8770a3825d0fbcb1b034c72cceca7d39cf190
   NitroModules: a513a95aa99e1a010f2dd93729326dcf849b989a
-  openiap: ff565cd77a07ba9e1438d2764a687515ceaa3b6d
+  openiap: d374c792df4c6047c8f846394b9c00815d64f327
   RCTDeprecation: 943572d4be82d480a48f4884f670135ae30bf990
   RCTRequired: 8f3cfc90cc25cf6e420ddb3e7caaaabc57df6043
   RCTTypeSafety: 16a4144ca3f959583ab019b57d5633df10b5e97c

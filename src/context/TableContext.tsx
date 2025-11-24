@@ -11,6 +11,7 @@ import { useProfile } from './ProfileContext';
 import { fetchSteelTableByOwner, fetchSupplierTables, persistSteelTable } from '../services/tableService';
 import type { PricingTable } from '../services/tableService';
 import type { ScheduleType, TableRow } from '../types/table';
+import type { PriceTableAIResponse } from '../types/priceTableAI';
 
 export type { TableRow } from '../types/table';
 
@@ -47,6 +48,7 @@ type TableContextValue = {
   updateNotes: (value: string) => void;
   updatePaymentTerms: (value: string) => void;
   updateScheduleType: (value: ScheduleType) => void;
+  applyImportedData: (data: PriceTableAIResponse) => void;
   toggleActive: (value: boolean) => void;
   saveTable: () => Promise<void>;
   isDirty: boolean;
@@ -300,15 +302,58 @@ export const TableProvider: React.FC<Props> = ({ children }) => {
       setIsDirty(true);
     };
 
-  const updateScheduleType = (value: ScheduleType) => {
-    setTable(prev => ({ ...prev, scheduleType: value }));
-    setIsDirty(true);
-  };
+    const updateScheduleType = (value: ScheduleType) => {
+      setTable(prev => ({ ...prev, scheduleType: value }));
+      setIsDirty(true);
+    };
 
-  const toggleActive = (value: boolean) => {
-    setTable(prev => ({ ...prev, isActive: value }));
-    setIsDirty(true);
-  };
+    const formatNumberToString = (value: number | null | undefined) => {
+      if (value === null || value === undefined) {
+        return '';
+      }
+      const parsed = Number.isFinite(value) ? value : Number.parseFloat(String(value));
+      if (!Number.isFinite(parsed)) {
+        return '';
+      }
+      return String(parsed).replace('.', ',');
+    };
+
+    const applyImportedData = (data: PriceTableAIResponse) => {
+      // IA preenche o mesmo estado da tabela existente; não cria novos campos.
+      const mappedRows: TableRow[] =
+        Array.isArray(data.ranges) && data.ranges.length > 0
+          ? data.ranges.slice(0, 10).map(range => {
+              const normalizedUnit = typeof range.unit === 'string' ? range.unit.toLowerCase() : null;
+              const allowedUnits: TableRow['unit'][] = ['m3', 'tonelada'];
+              const resolvedUnit = allowedUnits.includes(normalizedUnit as TableRow['unit'])
+                ? (normalizedUnit as TableRow['unit'])
+                : 'm3';
+              return {
+                id: generateId(),
+                densityMin: formatNumberToString(range.minDensityKg),
+                densityMax: formatNumberToString(range.maxDensityKg),
+                pricePF: formatNumberToString(range.pfPrice),
+                pricePJ: formatNumberToString(range.pjPrice),
+                unit: resolvedUnit
+              };
+            })
+          : [];
+
+      setTable(prev => ({
+        ...prev,
+        paymentTerms: data.paymentTerms ?? prev.paymentTerms,
+        scheduleType:
+          data.queueMode === 'agendamento' || data.queueMode === 'fila' ? data.queueMode : prev.scheduleType,
+        notes: data.notes ?? prev.notes,
+        rows: mappedRows.length > 0 ? mappedRows : prev.rows
+      }));
+      setIsDirty(true);
+    };
+
+    const toggleActive = (value: boolean) => {
+      setTable(prev => ({ ...prev, isActive: value }));
+      setIsDirty(true);
+    };
 
     return {
       table,
@@ -319,6 +364,7 @@ export const TableProvider: React.FC<Props> = ({ children }) => {
       updateNotes,
       updatePaymentTerms,
       updateScheduleType,
+      applyImportedData,
       toggleActive,
       saveTable: saveCurrentTable,
       isDirty,
