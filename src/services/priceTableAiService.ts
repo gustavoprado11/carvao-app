@@ -1,4 +1,5 @@
-import * as FileSystem from 'expo-file-system';
+// Using legacy API until migration to File/Directory classes is completed.
+import * as FileSystem from 'expo-file-system/legacy';
 import { supabase, SUPABASE_URL } from '../lib/supabaseClient';
 import type { PriceTableAIResponse } from '../types/priceTableAI';
 
@@ -59,12 +60,22 @@ export const extractPriceTableFromFile = async (file: UploadableFile): Promise<P
   try {
     parsed = JSON.parse(rawBody);
   } catch {
+    console.warn('[PriceTableAI] Non-JSON response', {
+      status: response.status,
+      body: rawBody?.slice?.(0, 500)
+    });
     throw new Error('Não foi possível ler a tabela. Tente enviar um arquivo mais nítido.');
   }
 
   const payload = parsed as { error?: boolean; message?: string } & Partial<PriceTableAIResponse>;
 
   if (!response.ok || payload.error) {
+    if (!payload.message) {
+      console.warn('[PriceTableAI] Function returned error', {
+        status: response.status,
+        body: rawBody?.slice?.(0, 500)
+      });
+    }
     throw new Error(normalizeErrorMessage(payload.message));
   }
 

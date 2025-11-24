@@ -6,7 +6,7 @@
     "version": "0.1.0",
     "sdkVersion": "54.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon-android.png",
+    "icon": "./assets/icon-1024.png",
     "userInterfaceStyle": "light",
     "splash": {
       "image": "./assets/splash.png",
@@ -26,7 +26,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/icon-android.png",
+        "foregroundImage": "./assets/icon-1024.png",
         "backgroundColor": "#ffffff"
       },
       "package": "com.gustavocprado.carvaoconnect"
