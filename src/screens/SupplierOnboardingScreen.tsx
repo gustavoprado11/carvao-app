@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
+  Linking,
   ScrollView,
   StyleSheet,
   Text,
@@ -151,6 +152,16 @@ useEffect(() => {
       console.warn('[SupplierOnboarding] pickDocument failed', error);
     }
   }, []);
+
+  const openLocalDocument = useCallback(
+    (uri?: string) => {
+      if (!uri) {
+        return;
+      }
+      void Linking.openURL(uri);
+    },
+    []
+  );
 
   const isCompanyStepValid = useMemo(() => {
     return Boolean(
@@ -374,6 +385,17 @@ const handlePrimaryAction = async () => {
           <Text style={styles.removeDocText}>Remover arquivo</Text>
         </TouchableOpacity>
       ) : null}
+      {documentAsset ? (
+        <TouchableOpacity style={styles.previewButton} onPress={() => openLocalDocument(documentAsset.uri)}>
+          <Ionicons name="open-outline" size={16} color={colors.primary} />
+          <Text style={styles.previewText}>Ver arquivo selecionado</Text>
+        </TouchableOpacity>
+      ) : profile.documentUrl ? (
+        <TouchableOpacity style={styles.previewButton} onPress={() => openLocalDocument(profile.documentUrl)}>
+          <Ionicons name="open-outline" size={16} color={colors.primary} />
+          <Text style={styles.previewText}>Ver último documento enviado</Text>
+        </TouchableOpacity>
+      ) : null}
       <TouchableOpacity
         style={styles.declarationRow}
         onPress={() => setAcceptedDeclaration(prev => !prev)}
@@ -574,6 +596,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.md,
     alignItems: 'center'
+  },
+  previewButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    marginTop: spacing.xs
+  },
+  previewText: {
+    fontSize: 14,
+    color: colors.primary,
+    fontWeight: '600'
   },
   documentInfo: {
     flex: 1,

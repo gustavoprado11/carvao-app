@@ -6,6 +6,7 @@ import OpenAI from 'https://deno.land/x/openai@v4.24.0/mod.ts';
 const supabaseUrl = Deno.env.get('SUPABASE_URL');
 const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 const openAiApiKey = Deno.env.get('OPENAI_API_KEY');
+const openAiModel = Deno.env.get('PRICE_TABLE_OPENAI_MODEL') ?? 'gpt-4o-mini';
 
 if (!supabaseUrl || !serviceRoleKey) {
   throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY environment variables.');
@@ -29,6 +30,13 @@ const jsonResponse = (status: number, body: Record<string, unknown>) =>
       'Cache-Control': 'no-store'
     }
   });
+
+const mapOpenAiErrorMessage = (message: string, status?: number) => {
+  if (status === 429 || message?.includes('429')) {
+    return 'Limite da IA atingido. Verifique o plano ou créditos da conta OpenAI.';
+  }
+  return `Falha ao processar no modelo. ${message || 'Erro desconhecido.'}`;
+};
 
 const toBase64DataUrl = async (file: File) => {
   const buffer = new Uint8Array(await file.arrayBuffer());
@@ -116,7 +124,8 @@ serve(async req => {
     }
 
     if (!openai) {
-      return jsonResponse(500, { error: true, message: 'Serviço indisponível. Tente novamente em instantes.' });
+      console.error('[price_table_extract_from_file] missing OPENAI_API_KEY');
+      return jsonResponse(500, { error: true, message: 'Serviço indisponível (OPENAI_API_KEY ausente).' });
     }
 
     const encodedFile = await toBase64DataUrl(file);
@@ -130,27 +139,80 @@ serve(async req => {
       '{ "paymentTerms": string?, "queueMode": "agendamento" | "fila" | null, "ranges": [{ "minDensityKg": number|null, "maxDensityKg": number|null, "pfPrice": number|null, "pjPrice": number|null, "unit": string|null, "notes": string|null }], "notes": string|null }. ' +
       'Não inclua comentários, markdown ou qualquer texto fora do JSON.';
 
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      temperature: 0.1,
-      max_tokens: 800,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        {
-          role: 'user',
-          content: [
-            {
-              type: 'text',
-              text:
-                'Analise a tabela de preços de compra de carvão vegetal e retorne apenas o JSON no formato solicitado.'
+    let completion;
+    try {
+      completion = await openai.chat.completions.create({
+        model: openAiModel,
+        temperature: 0.1,
+        max_tokens: 800,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text:
+                  'Analise a tabela de preços de compra de carvão vegetal e retorne apenas o JSON no formato solicitado.'
+              },
+              { type: 'image_url', image_url: { url: encodedFile } }
+            ]
+          }
+        ],
+        response_format: {
+          type: 'json_schema',
+          json_schema: {
+            name: 'price_table_extract_from_file',
+            schema: {
+              type: 'object',
+              properties: {
+                paymentTerms: { type: ['string', 'null'] },
+                queueMode: { type: ['string', 'null'], enum: ['agendamento', 'fila', null] },
+                ranges: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      minDensityKg: { type: ['number', 'null', 'string'] },
+                      maxDensityKg: { type: ['number', 'null', 'string'] },
+                      pfPrice: { type: ['number', 'null', 'string'] },
+                      pjPrice: { type: ['number', 'null', 'string'] },
+                      unit: { type: ['string', 'null'] },
+                      notes: { type: ['string', 'null'] }
+                    },
+                    required: ['minDensityKg', 'maxDensityKg', 'pfPrice', 'pjPrice', 'unit', 'notes'],
+                    additionalProperties: false
+                  }
+                },
+                notes: { type: ['string', 'null'] }
+              },
+              required: ['paymentTerms', 'queueMode', 'ranges', 'notes'],
+              additionalProperties: false
             },
-            { type: 'image_url', image_url: { url: encodedFile } }
-          ]
+            strict: true
+          }
         }
-      ]
-    });
+      });
+    } catch (error) {
+      const status = (error as { status?: number })?.status;
+      const message = error instanceof Error ? error.message : 'Erro desconhecido.';
+      console.error('[price_table_extract_from_file] openai call failed', { status, message, error });
+      return jsonResponse(status && status >= 400 ? status : 500, {
+        error: true,
+        message: mapOpenAiErrorMessage(message, status)
+      });
+    }
 
-    const rawContent = completion.choices[0]?.message?.content?.trim() ?? '';
+    const choice = completion.choices?.[0];
+    if (!choice || choice.finish_reason === 'length') {
+      console.warn('[price_table_extract_from_file] completion missing content', { finish: choice?.finish_reason });
+      return jsonResponse(500, {
+        error: true,
+        message: 'Não foi possível ler a tabela. Tente tirar outra foto ou enviar um arquivo mais nítido.'
+      });
+    }
+
+    const rawContent = choice.message?.content?.trim() ?? '';
     const sanitized = rawContent.replace(/```json/gi, '').replace(/```/g, '').trim();
 
     let parsed: PriceTableAiResponse | null = null;

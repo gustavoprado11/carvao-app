@@ -1,6 +1,6 @@
 // Using legacy API until migration to File/Directory classes is completed.
 import * as FileSystem from 'expo-file-system/legacy';
-import { supabase, SUPABASE_URL } from '../lib/supabaseClient';
+import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from '../lib/supabaseClient';
 import type { PriceTableAIResponse } from '../types/priceTableAI';
 
 type UploadableFile = {
@@ -46,13 +46,22 @@ export const extractPriceTableFromFile = async (file: UploadableFile): Promise<P
     type: file.type
   } as unknown as Blob);
 
-  const response = await fetch(`${baseUrl}/functions/v1/${FUNCTION_NAME}`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${accessToken}`
-    },
-    body: formData
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${baseUrl}/functions/v1/${FUNCTION_NAME}`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        apikey: SUPABASE_ANON_KEY ?? ''
+      },
+      body: formData
+    });
+  } catch (error) {
+    console.warn('[PriceTableAI] Network request failed', error);
+    throw new Error(
+      'Não foi possível conectar para ler a tabela. Verifique sua internet e tente novamente em instantes.'
+    );
+  }
 
   const rawBody = await response.text();
 
@@ -62,7 +71,7 @@ export const extractPriceTableFromFile = async (file: UploadableFile): Promise<P
   } catch {
     console.warn('[PriceTableAI] Non-JSON response', {
       status: response.status,
-      body: rawBody?.slice?.(0, 500)
+      body: rawBody?.slice?.(0, 500) ?? '<empty>'
     });
     throw new Error('Não foi possível ler a tabela. Tente enviar um arquivo mais nítido.');
   }
@@ -70,11 +79,13 @@ export const extractPriceTableFromFile = async (file: UploadableFile): Promise<P
   const payload = parsed as { error?: boolean; message?: string } & Partial<PriceTableAIResponse>;
 
   if (!response.ok || payload.error) {
+    console.warn('[PriceTableAI] Function returned error', {
+      status: response.status,
+      payload: JSON.stringify(payload)?.slice(0, 500),
+      body: rawBody?.slice?.(0, 500)
+    });
     if (!payload.message) {
-      console.warn('[PriceTableAI] Function returned error', {
-        status: response.status,
-        body: rawBody?.slice?.(0, 500)
-      });
+      // Server errored sem mensagem amigável, devolve fallback.
     }
     throw new Error(normalizeErrorMessage(payload.message));
   }

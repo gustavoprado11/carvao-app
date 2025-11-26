@@ -836,7 +836,15 @@ export const TablesScreen: React.FC = () => {
                       <Text style={styles.infoLabel} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
                         Agendamento ou fila
                       </Text>
-                      <Text style={styles.infoValue}>{formatScheduleLabel(item.scheduleType)}</Text>
+                      <Text
+                        style={styles.infoValue}
+                        numberOfLines={1}
+                        ellipsizeMode="tail"
+                        adjustsFontSizeToFit
+                        minimumFontScale={0.9}
+                      >
+                        {formatScheduleLabel(item.scheduleType)}
+                      </Text>
                     </View>
                   </View>
                   {item.rows.map((row, index) => renderReadOnlyRow(row, index))}

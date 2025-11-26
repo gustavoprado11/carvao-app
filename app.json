@@ -19,7 +19,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.gustavocprado.carvaoconnect",
-      "buildNumber": "21",
+      "buildNumber": "22",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSUserNotificationUsageDescription": "Usamos notificações para avisar sobre novas mensagens e atualizações das siderúrgicas."

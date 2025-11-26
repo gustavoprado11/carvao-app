@@ -18,7 +18,12 @@ import { PrimaryButton } from '../components/PrimaryButton';
 import { useProfile } from '../context/ProfileContext';
 import { DOCUMENT_REQUIREMENTS } from '../constants/documentTypes';
 import type { DocumentItem, DocumentStatus } from '../types/document';
-import { uploadSupplierDocument, fetchDocumentsSharedWith } from '../services/documentService';
+import {
+  uploadSupplierDocument,
+  fetchDocumentsSharedWith,
+  fetchOwnedDocuments,
+  shareDocumentWithProfiles
+} from '../services/documentService';
 import { fetchProfilesByType } from '../services/profileService';
 import type { UserProfile } from '../types/profile';
 
@@ -110,6 +115,7 @@ export const DocumentsScreen: React.FC = () => {
   const [sharedDocs, setSharedDocs] = useState<DocumentItem[]>([]);
   const [selectedSupplierId, setSelectedSupplierId] = useState<string | null>(null);
   const [loadingShared, setLoadingShared] = useState(false);
+  const [loadingDocuments, setLoadingDocuments] = useState(false);
 
   useEffect(() => {
     const loadShared = async () => {
@@ -142,6 +148,36 @@ export const DocumentsScreen: React.FC = () => {
     setter(prev => prev.map(doc => (doc.id === targetId ? { ...doc, ...payload } : doc)));
   };
 
+  useEffect(() => {
+    const loadSupplierDocs = async () => {
+      if (profile.type !== 'supplier' || !profile.id) {
+        return;
+      }
+      try {
+        setLoadingDocuments(true);
+        const remoteDocs = await fetchOwnedDocuments(profile.id);
+        setDocuments(prev => {
+          const merged = DOCUMENT_REQUIREMENTS.map(req => {
+            const remote = remoteDocs.find(doc => doc.typeId === req.id);
+            if (remote) {
+              return { ...remote, title: remote.title || req.title, description: remote.description ?? req.description };
+            }
+            return { ...req, status: 'missing' as DocumentStatus };
+          });
+          return merged;
+        });
+        // Extra docs (typeId === 'extra')
+        setExtraDocuments(remoteDocs.filter(doc => doc.typeId === 'extra'));
+      } catch (error) {
+        console.warn('[Documents] load supplier docs failed', error);
+        Alert.alert('Documentos', 'Não foi possível carregar seus documentos agora.');
+      } finally {
+        setLoadingDocuments(false);
+      }
+    };
+    loadSupplierDocs();
+  }, [profile.id, profile.type]);
+
   const handleUpload = useCallback(
     async (item: DocumentItem, setter: React.Dispatch<React.SetStateAction<DocumentItem[]>>) => {
       try {
@@ -160,7 +196,8 @@ export const DocumentsScreen: React.FC = () => {
         const uploadResult = await uploadSupplierDocument(profile, {
           uri: asset.uri,
           name: asset.name,
-          mimeType: asset.mimeType ?? 'application/pdf'
+          mimeType: asset.mimeType ?? 'application/pdf',
+          typeId: item.typeId as any
         });
         if (!uploadResult) {
           Alert.alert('Upload', 'Não foi possível enviar o documento. Tente novamente.');
@@ -168,6 +205,7 @@ export const DocumentsScreen: React.FC = () => {
         }
         const timestamp = new Date().toISOString();
         updateDocumentList(setter, item.id, {
+          id: uploadResult.recordId ?? item.id,
           status: 'uploaded',
           updatedAt: timestamp,
           url: uploadResult.publicUrl,
@@ -184,12 +222,28 @@ export const DocumentsScreen: React.FC = () => {
   );
 
   const handleShare = useCallback(
-    (item: DocumentItem, setter: React.Dispatch<React.SetStateAction<DocumentItem[]>>) => {
-      const sharedWith = fallbackSteelList.slice(0, 2);
-      setter(prev => prev.map(doc => (doc.id === item.id ? { ...doc, status: 'shared', sharedWith } : doc)));
-      Alert.alert('Compartilhado', `${item.title} foi disponibilizado para as siderúrgicas selecionadas.`);
+    async (item: DocumentItem, setter: React.Dispatch<React.SetStateAction<DocumentItem[]>>) => {
+      try {
+        if (!selectedSteelIds.size) {
+          Alert.alert('Compartilhar', 'Selecione ao menos uma siderúrgica.');
+          return;
+        }
+        const targetIds = Array.from(selectedSteelIds);
+        if (!item.id) {
+          Alert.alert('Compartilhar', 'Envie o documento antes de compartilhar.');
+          return;
+        }
+        await shareDocumentWithProfiles(item.id, targetIds);
+        const names = steelOptions.filter(s => s.id && selectedSteelIds.has(s.id)).map(s => s.company ?? s.email);
+        const sharedWith = names.length ? names : ['Siderúrgica selecionada'];
+        setter(prev => prev.map(doc => (doc.id === item.id ? { ...doc, status: 'shared', sharedWith } : doc)));
+        Alert.alert('Compartilhado', `${item.title} foi disponibilizado para as siderúrgicas selecionadas.`);
+      } catch (error) {
+        console.warn('[Documents] share failed', error);
+        Alert.alert('Compartilhar', 'Não foi possível compartilhar agora. Tente novamente em instantes.');
+      }
     },
-    []
+    [selectedSteelIds, steelOptions]
   );
 
   const handleAddExtraDocument = useCallback(async () => {
@@ -209,7 +263,8 @@ export const DocumentsScreen: React.FC = () => {
       const uploadResult = await uploadSupplierDocument(profile, {
         uri: asset.uri,
         name: asset.name,
-        mimeType: asset.mimeType ?? 'application/pdf'
+        mimeType: asset.mimeType ?? 'application/pdf',
+        typeId: 'extra'
       });
       if (!uploadResult) {
         Alert.alert('Upload', 'Não foi possível enviar o documento. Tente novamente.');
@@ -383,18 +438,33 @@ export const DocumentsScreen: React.FC = () => {
     });
   }, []);
 
-  const handleShareAll = useCallback(() => {
-    if (selectedSteelIds.size === 0) {
-      Alert.alert('Compartilhar', 'Selecione ao menos uma siderúrgica para compartilhar.');
-      return;
+  const handleShareAll = useCallback(async () => {
+    try {
+      if (selectedSteelIds.size === 0) {
+        Alert.alert('Compartilhar', 'Selecione ao menos uma siderúrgica para compartilhar.');
+        return;
+      }
+      const targetIds = Array.from(selectedSteelIds);
+      const uploadeds = [...documents, ...extraDocuments].filter(doc => doc.status === 'uploaded' || doc.status === 'shared');
+      const shareTasks = uploadeds
+        .filter(doc => doc.id)
+        .map(doc => shareDocumentWithProfiles(doc.id, targetIds));
+      if (shareTasks.length === 0) {
+        Alert.alert('Compartilhar', 'Envie os documentos antes de compartilhar.');
+        return;
+      }
+      await Promise.all(shareTasks);
+      const names = steelOptions.filter(s => s.id && selectedSteelIds.has(s.id)).map(s => s.company ?? s.email);
+      const sharedWith = names.length ? names : ['Siderúrgica selecionada'];
+      setDocuments(prev => prev.map(doc => ({ ...doc, status: 'shared', sharedWith })));
+      setExtraDocuments(prev => prev.map(doc => ({ ...doc, status: 'shared', sharedWith })));
+      setShareModalVisible(false);
+      Alert.alert('Compartilhado', 'Documentação enviada para as siderúrgicas selecionadas.');
+    } catch (error) {
+      console.warn('[Documents] share all failed', error);
+      Alert.alert('Compartilhar', 'Não foi possível compartilhar agora. Tente novamente.');
     }
-    const names = steelOptions.filter(s => s.id && selectedSteelIds.has(s.id)).map(s => s.company ?? s.email);
-    const sharedWith = names.length ? names : ['Siderúrgica selecionada'];
-    setDocuments(prev => prev.map(doc => ({ ...doc, status: 'shared', sharedWith })));
-    setExtraDocuments(prev => prev.map(doc => ({ ...doc, status: 'shared', sharedWith })));
-    setShareModalVisible(false);
-    Alert.alert('Compartilhado', 'Documentação enviada para as siderúrgicas selecionadas.');
-  }, [selectedSteelIds, steelOptions]);
+  }, [selectedSteelIds, documents, extraDocuments, steelOptions]);
 
   const handleOpenDocument = useCallback((item: DocumentItem) => {
     if (item.url) {
@@ -422,6 +492,7 @@ export const DocumentsScreen: React.FC = () => {
           showsVerticalScrollIndicator={false}
         >
           <Text style={styles.title}>Documentos</Text>
+          {loadingDocuments && isSupplier ? <Text style={styles.subtitle}>Carregando documentos...</Text> : null}
           {isSupplier ? supplierContent : steelContent}
         </ScrollView>
         {isSupplier ? (

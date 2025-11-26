@@ -1,5 +1,5 @@
 import { supabase } from '../lib/supabaseClient';
-import { ProfileStatus, ProfileType, UserProfile } from '../types/profile';
+import { ProfileStatus, ProfileType, SupplierDocumentStatus, UserProfile } from '../types/profile';
 
 type ProfileRecord = {
   id: string;
@@ -270,4 +270,54 @@ export const updateProfileStatus = async (profileId: string, status: ProfileStat
 
   const record = (tableData ?? null) as ProfileRecord | null;
   return record ? toDomainProfile(record) : null;
+};
+
+export const fetchSuppliersByDocumentStatus = async (
+  documentStatus: SupplierDocumentStatus
+): Promise<UserProfile[]> => {
+  const { data, error } = await supabase
+    .from(TABLE_NAME)
+    .select(
+      'id, email, type, company, contact, location, supply_audience, average_density_kg, average_volume_m3, status, document_status, document_url, document_storage_path, document_uploaded_at, document_reviewed_at, document_reviewed_by, document_review_notes'
+    )
+    .eq('type', 'supplier')
+    .eq('document_status', documentStatus)
+    .order('document_uploaded_at', { ascending: false, nullsFirst: false });
+
+  if (error || !data) {
+    console.warn('[Supabase] fetchSuppliersByDocumentStatus failed', error);
+    return [];
+  }
+
+  return (data as ProfileRecord[]).map(toDomainProfile);
+};
+
+export const updateSupplierDocumentStatus = async (
+  profileId: string,
+  documentStatus: SupplierDocumentStatus,
+  reviewNotes?: string | null,
+  reviewerId?: string | null
+): Promise<UserProfile | null> => {
+  const payload = {
+    document_status: documentStatus,
+    document_review_notes: reviewNotes ?? null,
+    document_reviewed_at: new Date().toISOString(),
+    document_reviewed_by: reviewerId ?? null
+  };
+
+  const { data, error } = await supabase
+    .from(TABLE_NAME)
+    .update(payload)
+    .eq('id', profileId)
+    .select(
+      'id, email, type, company, contact, location, supply_audience, average_density_kg, average_volume_m3, status, document_status, document_url, document_storage_path, document_uploaded_at, document_reviewed_at, document_reviewed_by, document_review_notes'
+    )
+    .maybeSingle();
+
+  if (error) {
+    console.warn('[Supabase] updateSupplierDocumentStatus failed', error);
+    return null;
+  }
+
+  return data ? toDomainProfile(data as ProfileRecord) : null;
 };
