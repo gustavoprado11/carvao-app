@@ -1,7 +1,8 @@
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { supabase } from '../lib/supabaseClient';
 import { UserProfile } from '../types/profile';
 import { DocumentItem } from '../types/document';
+import type { DocumentTypeId } from '../constants/documentTypes';
 
 const DOCUMENT_BUCKET = 'supplier_documents';
 
@@ -9,6 +10,7 @@ export type SupplierDocumentAsset = {
   uri: string;
   name?: string | null;
   mimeType?: string | null;
+  typeId?: DocumentTypeId | 'extra';
 };
 
 const base64ToUint8Array = (base64: string): Uint8Array => {
@@ -63,7 +65,7 @@ const sanitizeFileName = (value?: string | null) => {
 export const uploadSupplierDocument = async (
   profile: UserProfile,
   asset: SupplierDocumentAsset
-): Promise<{ path: string; publicUrl: string } | null> => {
+): Promise<{ path: string; publicUrl: string; recordId?: string } | null> => {
   if (!profile.id) {
     throw new Error('Perfil sem identificador para upload de DCF.');
   }
@@ -73,6 +75,7 @@ export const uploadSupplierDocument = async (
 
   const finalName = sanitizeFileName(asset.name);
   const targetPath = `${profile.id}/${Date.now()}-${finalName}`;
+  const typeId = asset.typeId ?? 'extra';
 
   const base64 = await FileSystem.readAsStringAsync(asset.uri, {
     encoding: 'base64'
@@ -95,9 +98,24 @@ export const uploadSupplierDocument = async (
   const { data: publicUrlData } = supabase.storage.from(DOCUMENT_BUCKET).getPublicUrl(resolvedPath);
   const publicUrl = publicUrlData.publicUrl;
 
+  // Cria registro na tabela documents para rastrear status e compartilhamento.
+  const { data: record, error: recordError } = await supabase.rpc('create_document', {
+    p_owner: profile.id,
+    p_type: typeId,
+    p_name: asset.name ?? finalName,
+    p_mime: asset.mimeType ?? 'application/pdf',
+    p_size: (fileContents?.byteLength as number) ?? null,
+    p_path: resolvedPath
+  });
+
+  if (recordError) {
+    console.warn('[Supabase] create_document failed', recordError);
+  }
+
   return {
     path: resolvedPath,
-    publicUrl
+    publicUrl,
+    recordId: (record as any)?.id
   };
 };
 
@@ -134,6 +152,44 @@ const mapSharedDocument = (record: DocumentRecord): DocumentItem => {
     supplierName: record.owner?.company ?? record.owner?.email ?? undefined,
     supplierLocation: record.owner?.location ?? undefined
   };
+};
+
+export const fetchOwnedDocuments = async (profileId: string): Promise<DocumentItem[]> => {
+  const { data, error } = await supabase
+    .from('documents')
+    .select('id, type_id, name, description, status, updated_at, document_url, storage_path:storage_path')
+    .eq('owner_profile_id', profileId);
+
+  if (error || !data) {
+    console.warn('[Supabase] fetchOwnedDocuments failed', error);
+    return [];
+  }
+
+  return (data as any[]).map(record => {
+    const { data: urlData } = supabase.storage.from(DOCUMENT_BUCKET).getPublicUrl(record.storage_path);
+    return {
+      id: record.id,
+      typeId: record.type_id,
+      title: record.name,
+      description: record.description ?? undefined,
+      status: (record.status as DocumentItem['status']) ?? 'uploaded',
+      updatedAt: record.updated_at ?? undefined,
+      url: urlData?.publicUrl ?? record.document_url ?? undefined,
+      path: record.storage_path ?? undefined
+    } as DocumentItem;
+  });
+};
+
+export const shareDocumentWithProfiles = async (documentId: string, targetProfileIds: string[]) => {
+  const tasks = targetProfileIds.map(targetId =>
+    supabase.rpc('share_document', { p_document: documentId, p_target: targetId })
+  );
+  const results = await Promise.allSettled(tasks);
+  const failures = results.filter(r => r.status === 'rejected' || ('value' in r && (r as any).value.error));
+  if (failures.length > 0) {
+    console.warn('[Supabase] shareDocumentWithProfiles failures', failures);
+    throw new Error('Não foi possível compartilhar alguns documentos agora.');
+  }
 };
 
 export const fetchDocumentsSharedWith = async (profileId: string): Promise<DocumentItem[]> => {

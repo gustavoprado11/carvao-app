@@ -10,6 +10,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system/legacy';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, typography } from '../theme';
 import { TextField } from '../components/TextField';
@@ -132,6 +133,14 @@ useEffect(() => {
       if (!asset) {
         return;
       }
+
+      // Validação básica de tamanho (10MB) para evitar falhas no upload.
+      const info = await FileSystem.getInfoAsync(asset.uri);
+      if (info.size && info.size > 10 * 1024 * 1024) {
+        Alert.alert('Documento', 'O arquivo deve ter no máximo 10MB. Escolha um arquivo menor.');
+        return;
+      }
+
       setDocumentAsset({
         uri: asset.uri,
         name: asset.name,
@@ -199,7 +208,7 @@ const persistSupplierDetails = useCallback(async () => {
     }
     try {
       setIsSubmitting(true);
-      const uploadResult = await uploadSupplierDocument(profile, documentAsset);
+      const uploadResult = await uploadSupplierDocument(profile, { ...documentAsset, typeId: 'dcf' });
       if (!uploadResult) {
         Alert.alert('Documento', 'Não foi possível enviar sua DCF. Verifique sua conexão e tente novamente.');
         return;
