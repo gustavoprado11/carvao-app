@@ -74,8 +74,22 @@ export const uploadSupplierDocument = async (
   }
 
   const finalName = sanitizeFileName(asset.name);
+  const typeId = (asset.typeId ?? 'extra').toLowerCase() as SupplierDocumentAsset['typeId'];
+  const isExtraDoc = typeId === 'extra';
+
+  // Para documentos não-extras, verifica se já existe um documento deste tipo para deletar o arquivo antigo do storage
+  let existingDoc: { storage_path?: string } | null = null;
+  if (!isExtraDoc) {
+    const { data } = await supabase
+      .from('documents')
+      .select('storage_path')
+      .eq('owner_profile_id', profile.id)
+      .eq('type_id', typeId)
+      .single();
+    existingDoc = data;
+  }
+
   const targetPath = `${profile.id}/${Date.now()}-${finalName}`;
-  const typeId = asset.typeId ?? 'extra';
 
   const base64 = await FileSystem.readAsStringAsync(asset.uri, {
     encoding: 'base64'
@@ -98,18 +112,79 @@ export const uploadSupplierDocument = async (
   const { data: publicUrlData } = supabase.storage.from(DOCUMENT_BUCKET).getPublicUrl(resolvedPath);
   const publicUrl = publicUrlData.publicUrl;
 
-  // Cria registro na tabela documents para rastrear status e compartilhamento.
-  const { data: record, error: recordError } = await supabase.rpc('create_document', {
-    p_owner: profile.id,
-    p_type: typeId,
-    p_name: asset.name ?? finalName,
-    p_mime: asset.mimeType ?? 'application/pdf',
-    p_size: (fileContents?.byteLength as number) ?? null,
-    p_path: resolvedPath
-  });
+  // Cria/atualiza registro na tabela documents para rastrear status e compartilhamento.
+  // Para documentos extras, sempre cria um novo registro (insert)
+  // Para outros tipos, usa upsert para substituir documentos existentes do mesmo tipo
+  let record: any;
+  let recordError: any;
+
+  if (isExtraDoc) {
+    // Documentos extras: sempre insere novo registro
+    const result = await supabase
+      .from('documents')
+      .insert({
+        type_id: typeId,
+        name: asset.name ?? finalName,
+        owner_profile_id: profile.id,
+        status: 'uploaded',
+        storage_path: resolvedPath
+      })
+      .select('id')
+      .single();
+    record = result.data;
+    recordError = result.error;
+  } else {
+    // Documentos padrão: primeiro tenta encontrar documento existente, depois faz upsert
+    const { data: existing } = await supabase
+      .from('documents')
+      .select('id')
+      .eq('owner_profile_id', profile.id)
+      .eq('type_id', typeId)
+      .maybeSingle();
+
+    if (existing) {
+      // Atualiza documento existente
+      const result = await supabase
+        .from('documents')
+        .update({
+          name: asset.name ?? finalName,
+          status: 'uploaded',
+          storage_path: resolvedPath,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', existing.id)
+        .select('id')
+        .single();
+      record = result.data;
+      recordError = result.error;
+    } else {
+      // Cria novo documento
+      const result = await supabase
+        .from('documents')
+        .insert({
+          type_id: typeId,
+          name: asset.name ?? finalName,
+          owner_profile_id: profile.id,
+          status: 'uploaded',
+          storage_path: resolvedPath
+        })
+        .select('id')
+        .single();
+      record = result.data;
+      recordError = result.error;
+    }
+  }
 
   if (recordError) {
-    console.warn('[Supabase] create_document failed', recordError);
+    console.error('[Supabase] upsert/insert document failed', recordError);
+    console.error('[Supabase] Document details - typeId:', typeId, 'isExtra:', isExtraDoc, 'profileId:', profile.id);
+    // Não falha silenciosamente - lança erro para que o usuário saiba
+    throw new Error(`Falha ao salvar documento: ${recordError.message || recordError}`);
+  }
+
+  // Se upload e upsert foram bem sucedidos, deleta o arquivo antigo do storage (apenas para documentos não-extras)
+  if (!isExtraDoc && existingDoc?.storage_path && existingDoc.storage_path !== resolvedPath) {
+    await supabase.storage.from(DOCUMENT_BUCKET).remove([existingDoc.storage_path]);
   }
 
   return {
@@ -126,8 +201,7 @@ type DocumentRecord = {
   description?: string | null;
   status?: string | null;
   updated_at?: string | null;
-  document_url?: string | null;
-  document_storage_path?: string | null;
+  storage_path?: string | null;
   owner_profile_id?: string | null;
   owner?: {
     id?: string | null;
@@ -139,15 +213,19 @@ type DocumentRecord = {
 };
 
 const mapSharedDocument = (record: DocumentRecord): DocumentItem => {
+  const storagePath = record.storage_path ?? (record as any)?.document_storage_path ?? (record as any)?.storage_path;
+  const { data: urlData } = storagePath
+    ? supabase.storage.from(DOCUMENT_BUCKET).getPublicUrl(storagePath)
+    : { data: { publicUrl: undefined } as any };
   return {
     id: record.id,
-    typeId: record.type_id,
+    typeId: record.type_id ? String(record.type_id).trim().toLowerCase() : '',
     title: record.name,
     description: record.description ?? undefined,
     status: (record.status as DocumentItem['status']) ?? 'shared',
     updatedAt: record.updated_at ?? undefined,
-    url: record.document_url ?? undefined,
-    path: record.document_storage_path ?? undefined,
+    url: urlData?.publicUrl ?? undefined,
+    path: storagePath ?? undefined,
     supplierId: record.owner?.id ?? record.owner_profile_id ?? undefined,
     supplierName: record.owner?.company ?? record.owner?.email ?? undefined,
     supplierLocation: record.owner?.location ?? undefined
@@ -157,7 +235,7 @@ const mapSharedDocument = (record: DocumentRecord): DocumentItem => {
 export const fetchOwnedDocuments = async (profileId: string): Promise<DocumentItem[]> => {
   const { data, error } = await supabase
     .from('documents')
-    .select('id, type_id, name, description, status, updated_at, document_url, storage_path:storage_path')
+    .select('id, type_id, name, description, status, updated_at, storage_path')
     .eq('owner_profile_id', profileId);
 
   if (error || !data) {
@@ -166,16 +244,20 @@ export const fetchOwnedDocuments = async (profileId: string): Promise<DocumentIt
   }
 
   return (data as any[]).map(record => {
-    const { data: urlData } = supabase.storage.from(DOCUMENT_BUCKET).getPublicUrl(record.storage_path);
+    const storagePath = record.storage_path ?? (record as any)?.document_storage_path ?? (record as any)?.storage_path;
+    const normalizedTypeId = record.type_id ? String(record.type_id).trim().toLowerCase() : '';
+    const { data: urlData } = storagePath
+      ? supabase.storage.from(DOCUMENT_BUCKET).getPublicUrl(storagePath)
+      : { data: { publicUrl: undefined } as any };
     return {
       id: record.id,
-      typeId: record.type_id,
+      typeId: normalizedTypeId,
       title: record.name,
       description: record.description ?? undefined,
       status: (record.status as DocumentItem['status']) ?? 'uploaded',
       updatedAt: record.updated_at ?? undefined,
-      url: urlData?.publicUrl ?? record.document_url ?? undefined,
-      path: record.storage_path ?? undefined
+      url: urlData?.publicUrl ?? undefined,
+      path: storagePath ?? undefined
     } as DocumentItem;
   });
 };
@@ -189,6 +271,28 @@ export const shareDocumentWithProfiles = async (documentId: string, targetProfil
   if (failures.length > 0) {
     console.warn('[Supabase] shareDocumentWithProfiles failures', failures);
     throw new Error('Não foi possível compartilhar alguns documentos agora.');
+  }
+};
+
+export const deleteSupplierDocument = async (profileId: string, document: DocumentItem) => {
+  if (!profileId || !document) {
+    throw new Error('Perfil ou documento inválido para exclusão.');
+  }
+
+  if (document.path) {
+    const { error: removeError } = await supabase.storage.from(DOCUMENT_BUCKET).remove([document.path]);
+    if (removeError) {
+      console.warn('[Supabase] deleteSupplierDocument storage remove failed', removeError);
+      throw new Error('Não foi possível remover o arquivo do armazenamento.');
+    }
+  }
+
+  if (document.id && typeof document.id === 'string' && document.id.length > 8) {
+    const { error: deleteError } = await supabase.from('documents').delete().eq('id', document.id);
+    if (deleteError) {
+      console.warn('[Supabase] deleteSupplierDocument record delete failed', deleteError);
+      throw new Error('Não foi possível remover o registro do documento.');
+    }
   }
 };
 
@@ -220,9 +324,7 @@ export const fetchDocumentsSharedWith = async (profileId: string): Promise<Docum
 
   const { data, error } = await supabase
     .from('documents')
-    .select(
-      'id, type_id, name, description, status, updated_at, document_url, document_storage_path, owner_profile_id, owner:owner_profile_id(id, email, company, contact, location)'
-    )
+    .select('id, type_id, name, description, status, updated_at, storage_path, owner_profile_id, owner:owner_profile_id(id, email, company, contact, location)')
     .in('id', documentIds);
 
   if (error || !data) {
