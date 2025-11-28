@@ -8,7 +8,7 @@ import React, {
   useState
 } from 'react';
 import { useProfile } from './ProfileContext';
-import { fetchSteelTableByOwner, fetchSupplierTables, persistSteelTable } from '../services/tableService';
+import { fetchSteelTableByOwner, fetchSupplierTables, persistSteelTable, adminPersistSteelTable } from '../services/tableService';
 import type { PricingTable } from '../services/tableService';
 import type { ScheduleType, TableRow } from '../types/table';
 import type { PriceTableAIResponse } from '../types/priceTableAI';
@@ -24,6 +24,9 @@ type TableState = {
   paymentTerms: string;
   scheduleType: ScheduleType;
   isActive: boolean;
+  lastModifiedBy?: string;
+  lastModifiedAt?: string;
+  lastModifiedByType?: 'admin' | 'owner';
 };
 
 export type SupplierTablePreview = {
@@ -37,6 +40,9 @@ export type SupplierTablePreview = {
   scheduleType?: ScheduleType;
   rows: TableRow[];
   isActive: boolean;
+  lastModifiedBy?: string;
+  lastModifiedAt?: string;
+  lastModifiedByType?: 'admin' | 'owner';
 };
 
 type TableContextValue = {
@@ -55,6 +61,8 @@ type TableContextValue = {
   supplierTables: SupplierTablePreview[];
   refreshSupplierTables: () => Promise<void>;
   refreshTableData: () => Promise<void>;
+  loadTableForOwner: (ownerEmail: string, metadata?: SteelMetadata) => Promise<void>;
+  saveTableForOwner: (ownerEmail: string, metadata?: SteelMetadata) => Promise<void>;
   loading: boolean;
 };
 
@@ -98,7 +106,10 @@ const mapPricingTableToState = (pricingTable: PricingTable): TableState => ({
   rows:
     pricingTable.rows.length > 0
       ? pricingTable.rows
-      : [...defaultRows.map(row => ({ ...row, id: generateId() }))]
+      : [...defaultRows.map(row => ({ ...row, id: generateId() }))],
+  lastModifiedBy: pricingTable.lastModifiedBy,
+  lastModifiedAt: pricingTable.lastModifiedAt,
+  lastModifiedByType: pricingTable.lastModifiedByType
 });
 
 const mapPricingTableToPreview = (pricingTable: PricingTable): SupplierTablePreview => ({
@@ -111,11 +122,19 @@ const mapPricingTableToPreview = (pricingTable: PricingTable): SupplierTablePrev
   paymentTerms: pricingTable.paymentTerms ?? undefined,
   scheduleType: pricingTable.scheduleType ?? undefined,
   rows: pricingTable.rows,
-  isActive: pricingTable.isActive ?? true
+  isActive: pricingTable.isActive ?? true,
+  lastModifiedBy: pricingTable.lastModifiedBy,
+  lastModifiedAt: pricingTable.lastModifiedAt,
+  lastModifiedByType: pricingTable.lastModifiedByType
 });
 
 type Props = {
   children: React.ReactNode;
+};
+
+type SteelMetadata = {
+  company?: string | null;
+  location?: string | null;
 };
 
 export const TableProvider: React.FC<Props> = ({ children }) => {
@@ -186,6 +205,38 @@ export const TableProvider: React.FC<Props> = ({ children }) => {
     }
     await refreshSupplierTables();
   }, [profile.type, refreshSteelTable, refreshSupplierTables]);
+
+  const loadTableForOwner = useCallback(
+    async (ownerEmail: string, metadata?: SteelMetadata) => {
+      setLoading(true);
+      try {
+        const remoteTable = await fetchSteelTableByOwner(ownerEmail);
+        if (remoteTable) {
+          const merged = {
+            ...remoteTable,
+            company: metadata?.company ?? remoteTable.company,
+            location: metadata?.location ?? remoteTable.location
+          };
+          setTable(mapPricingTableToState(merged));
+          setIsDirty(false);
+          return;
+        }
+        setTable(prev => ({
+          ...prev,
+          id: null,
+          rows: defaultRows.map(row => ({ ...row, id: generateId() })),
+          notes: defaultNotes,
+          paymentTerms: '',
+          scheduleType: 'agendamento',
+          isActive: true
+        }));
+        setIsDirty(true);
+      } finally {
+        setLoading(false);
+      }
+    },
+    []
+  );
 
   const persistIfSteel = useCallback(
     async (next: TableState) => {
@@ -355,6 +406,50 @@ export const TableProvider: React.FC<Props> = ({ children }) => {
       setIsDirty(true);
     };
 
+    const saveTableForOwner = async (ownerEmail: string, metadata?: SteelMetadata) => {
+      const normalizedEmail = ownerEmail.trim().toLowerCase();
+      if (!normalizedEmail) {
+        throw new Error('Selecione uma siderúrgica válida antes de salvar.');
+      }
+      const resolvedCompany = metadata?.company ?? profile.company ?? null;
+      const resolvedLocation = metadata?.location ?? profile.location ?? null;
+
+      // USAR adminPersistSteelTable em vez de persistSteelTable
+      const persisted = await adminPersistSteelTable(
+        normalizedEmail,
+        {
+          id: table.id ?? generateTableId(),
+          title: table.title,
+          description: table.description,
+          notes: table.notes,
+          paymentTerms: table.paymentTerms,
+          scheduleType: table.scheduleType,
+          isActive: table.isActive,
+          rows: table.rows,
+          company: resolvedCompany ?? undefined,
+          route: resolvedCompany ?? undefined,
+          location: resolvedLocation ?? undefined,
+          updatedAt: undefined
+        },
+        resolvedCompany,
+        resolvedLocation
+      );
+
+      if (!persisted) {
+        throw new Error('Não foi possível salvar a tabela.');
+      }
+
+      const merged = {
+        ...persisted,
+        company: resolvedCompany ?? persisted.company,
+        location: resolvedLocation ?? persisted.location
+      } as PricingTable;
+
+      setTable(mapPricingTableToState(merged));
+      setIsDirty(false);
+      await refreshSupplierTables();
+    };
+
     return {
       table,
       addRow,
@@ -367,13 +462,25 @@ export const TableProvider: React.FC<Props> = ({ children }) => {
       applyImportedData,
       toggleActive,
       saveTable: saveCurrentTable,
+      loadTableForOwner,
+      saveTableForOwner,
       isDirty,
       supplierTables,
       refreshSupplierTables,
       refreshTableData,
       loading
     };
-  }, [table, saveCurrentTable, isDirty, supplierTables, refreshSupplierTables, refreshTableData, loading]);
+  }, [
+    table,
+    saveCurrentTable,
+    isDirty,
+    supplierTables,
+    refreshSupplierTables,
+    refreshTableData,
+    loading,
+    profile,
+    loadTableForOwner
+  ]);
 
   return <TableContext.Provider value={value}>{children}</TableContext.Provider>;
 };

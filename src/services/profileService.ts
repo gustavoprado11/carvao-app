@@ -305,6 +305,12 @@ export const updateSupplierDocumentStatus = async (
     document_reviewed_by: reviewerId ?? null
   };
 
+  console.log('[updateSupplierDocumentStatus] Attempting update:', {
+    profileId,
+    documentStatus,
+    reviewerId
+  });
+
   const { data, error } = await supabase
     .from(TABLE_NAME)
     .update(payload)
@@ -315,9 +321,17 @@ export const updateSupplierDocumentStatus = async (
     .maybeSingle();
 
   if (error) {
-    console.warn('[Supabase] updateSupplierDocumentStatus failed', error);
+    console.error('[Supabase] updateSupplierDocumentStatus failed', error);
+    console.error('[Supabase] Update details:', { profileId, payload });
     return null;
   }
 
-  return data ? toDomainProfile(data as ProfileRecord) : null;
+  if (!data) {
+    console.warn('[Supabase] updateSupplierDocumentStatus returned no data (possible RLS policy block)');
+    console.warn('[Supabase] Profile ID:', profileId);
+    return null;
+  }
+
+  console.log('[updateSupplierDocumentStatus] Success:', data.email, data.document_status);
+  return toDomainProfile(data as ProfileRecord);
 };

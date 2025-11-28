@@ -110,9 +110,9 @@ export const ConversationsScreen: React.FC = () => {
   const { activeReceipt } = useSubscription();
   const [conversations, setConversations] = useState<ConversationPreview[]>([]);
   const [isLoadingList, setIsLoadingList] = useState(true);
+  const hasLoadedOnceRef = React.useRef(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [steelPartners, setSteelPartners] = useState<UserProfile[]>([]);
-  const [cachedSnapshot, setCachedSnapshot] = useState<ConversationPreview[]>([]);
   const [supplierPartners, setSupplierPartners] = useState<UserProfile[]>([]);
   const [supplierProfilesByEmail, setSupplierProfilesByEmail] = useState<Record<string, UserProfile>>({});
   const [isNewConversationVisible, setIsNewConversationVisible] = useState(false);
@@ -126,23 +126,27 @@ export const ConversationsScreen: React.FC = () => {
 
   const loadConversations = useCallback(async (options?: { silent?: boolean }) => {
     const silent = options?.silent ?? false;
+    const isFirstLoad = !hasLoadedOnceRef.current;
+
     if (!profile.email) {
       setConversations([]);
-      if (!silent) {
+      if (!silent && isFirstLoad) {
         setIsLoadingList(false);
       }
       return;
     }
-    if (!silent) {
+
+    if (!silent && isFirstLoad) {
       setIsLoadingList(true);
     }
+
     try {
       const data = await fetchConversationsByProfile(profile.email, profile.type);
       setConversations(data);
       recordConversationsSnapshot(data);
-      setCachedSnapshot(data);
+      hasLoadedOnceRef.current = true;
     } finally {
-      if (!silent) {
+      if (!silent && isFirstLoad) {
         setIsLoadingList(false);
       }
     }
@@ -159,11 +163,8 @@ export const ConversationsScreen: React.FC = () => {
 
   useFocusEffect(
     useCallback(() => {
-      if (cachedSnapshot.length) {
-        setConversations(cachedSnapshot);
-      }
-      void loadConversations({ silent: cachedSnapshot.length > 0 });
-    }, [cachedSnapshot, loadConversations])
+      void loadConversations({ silent: false });
+    }, [loadConversations])
   );
 
   React.useEffect(() => {
@@ -271,15 +272,30 @@ export const ConversationsScreen: React.FC = () => {
         const nameB = (b.company ?? b.contact ?? b.email).toLowerCase();
         return nameA.localeCompare(nameB);
       });
-      setSupplierPartners(sorted);
+
+      // Apenas atualizar se realmente mudou
+      setSupplierPartners(prev => {
+        const prevEmails = prev.map(p => p.email).sort().join(',');
+        const newEmails = sorted.map(p => p.email).sort().join(',');
+        if (prevEmails === newEmails) {
+          return prev;
+        }
+        return sorted;
+      });
+
       setSupplierProfilesByEmail(prev => {
         const next = { ...prev };
+        let hasChanges = false;
         resolvedPartners.forEach(partner => {
           if (partner.email) {
-            next[partner.email.trim().toLowerCase()] = partner;
+            const key = partner.email.trim().toLowerCase();
+            if (!prev[key] || prev[key].company !== partner.company || prev[key].contact !== partner.contact) {
+              next[key] = partner;
+              hasChanges = true;
+            }
           }
         });
-        return next;
+        return hasChanges ? next : prev;
       });
     };
 
@@ -320,17 +336,23 @@ export const ConversationsScreen: React.FC = () => {
 
       setSupplierProfilesByEmail(prev => {
         const next = { ...prev };
+        let hasChanges = false;
         fetchedProfiles.forEach(profile => {
           if (profile?.email) {
-            next[profile.email.trim().toLowerCase()] = profile;
+            const key = profile.email.trim().toLowerCase();
+            if (!prev[key] || prev[key].company !== profile.company || prev[key].contact !== profile.contact) {
+              next[key] = profile;
+              hasChanges = true;
+            }
           }
         });
-        return next;
+        return hasChanges ? next : prev;
       });
     };
 
     hydrateMissingSupplierProfiles();
-  }, [profile.type, conversations, supplierPartners, supplierProfilesByEmail, findPartnerByEmail]);
+    // Removido supplierProfilesByEmail das dependências para evitar loop infinito
+  }, [profile.type, conversations, supplierPartners, findPartnerByEmail]);
 
   const resolveCounterpartName = useCallback(
     (conversation: ConversationPreview): string => {

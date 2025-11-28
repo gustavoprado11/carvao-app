@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Linking,
   ScrollView,
@@ -8,6 +9,7 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as DocumentPicker from 'expo-document-picker';
@@ -20,6 +22,7 @@ import { PrimaryButton } from '../components/PrimaryButton';
 import { useProfile } from '../context/ProfileContext';
 import type { SupplyAudience } from '../types/profile';
 import { uploadSupplierDocument, type SupplierDocumentAsset } from '../services/documentService';
+import { supabase } from '../lib/supabaseClient';
 
 export type SupplierOnboardingStep = 'company' | 'production' | 'document';
 
@@ -54,6 +57,8 @@ export const SupplierOnboardingScreen: React.FC<Props> = ({ onCompleted, onCance
   const [acceptedDeclaration, setAcceptedDeclaration] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isPersisting, setIsPersisting] = useState(false);
+  const [isEmailVerified, setIsEmailVerified] = useState(false);
+  const [isCheckingEmail, setIsCheckingEmail] = useState(false);
   const insets = useSafeAreaInsets();
 
   const [form, setForm] = useState<FormState>(() => {
@@ -95,6 +100,95 @@ useEffect(() => {
     setStep(initialStep);
   }
 }, [initialStep]);
+
+// Verificar status de verificação de email quando entrar no passo de documento
+useEffect(() => {
+  if (step === 'document') {
+    checkEmailVerificationStatus();
+  }
+}, [step]);
+
+useFocusEffect(
+  useCallback(() => {
+    if (step === 'document') {
+      checkEmailVerificationStatus();
+    }
+  }, [step])
+);
+
+const checkEmailVerificationStatus = async () => {
+  if (isCheckingEmail) {
+    return;
+  }
+  try {
+    setIsCheckingEmail(true);
+    console.log('[SupplierOnboarding] Checking email verification status...');
+
+    const wasVerified = isEmailVerified;
+
+    // No novo fluxo OTP, se o usuário tem uma sessão ativa, o e-mail já foi verificado
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+
+    if (sessionError) {
+      console.warn('[SupplierOnboarding] getSession error', sessionError);
+      setIsEmailVerified(false);
+      return;
+    }
+
+    if (!session) {
+      console.warn('[SupplierOnboarding] No active session');
+      setIsEmailVerified(false);
+      Alert.alert(
+        'Sessão expirada',
+        'Sua sessão expirou. Por favor, faça login novamente.',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+
+    // Com sessão ativa, buscar informações do usuário
+    const { data: userData, error: userError } = await supabase.auth.getUser();
+
+    if (userError || !userData.user) {
+      console.error('[SupplierOnboarding] getUser failed:', userError);
+      setIsEmailVerified(false);
+      return;
+    }
+
+    const user = userData.user;
+
+    // No fluxo OTP: se tem sessão ativa, o e-mail está verificado
+    // No fluxo antigo: verifica email_confirmed_at
+    const emailVerified = Boolean(user.email_confirmed_at) || Boolean(session);
+
+    console.log('[SupplierOnboarding] Email verification check:', {
+      emailVerified,
+      hasSession: !!session,
+      email_confirmed_at: user.email_confirmed_at,
+      email: user.email
+    });
+
+    setIsEmailVerified(emailVerified);
+
+    if (emailVerified && !wasVerified) {
+      console.log('[SupplierOnboarding] Email verified successfully');
+    } else if (!emailVerified) {
+      console.warn('[SupplierOnboarding] Email not verified yet');
+      Alert.alert(
+        'Email não verificado',
+        'Sua conta ainda não foi verificada. Por favor, verifique seu e-mail ou entre em contato com o suporte.',
+        [{ text: 'OK' }]
+      );
+    }
+  } catch (error) {
+    console.error('[SupplierOnboarding] checkEmailVerificationStatus failed:', error);
+    // Não mostrar alert de erro, apenas logar
+    // Assumir verificado se chegou até aqui com sessão ativa
+    setIsEmailVerified(true);
+  } finally {
+    setIsCheckingEmail(false);
+  }
+};
 
   const currentStepIndex = useMemo(() => steps.indexOf(step), [step]);
 
@@ -178,8 +272,8 @@ useEffect(() => {
   }, [form.averageDensityKg, form.averageMonthlyVolumeM3]);
 
 const isDocumentStepValid = useMemo(() => {
-  return Boolean(documentAsset && acceptedDeclaration);
-}, [acceptedDeclaration, documentAsset]);
+  return Boolean(documentAsset && acceptedDeclaration && isEmailVerified);
+}, [acceptedDeclaration, documentAsset, isEmailVerified]);
 
 const persistSupplierDetails = useCallback(async () => {
   try {
@@ -277,7 +371,16 @@ const handlePrimaryAction = async () => {
     return;
   }
   if (!isDocumentStepValid) {
-    Alert.alert('Documento', 'Selecione o arquivo da DCF e confirme a declaração de veracidade.');
+    if (!isEmailVerified) {
+      Alert.alert(
+        'Verificação necessária',
+        'Não foi possível verificar seu e-mail. Por favor, toque em "Verificar novamente" ou entre em contato com o suporte.'
+      );
+    } else if (!documentAsset) {
+      Alert.alert('Documento', 'Selecione o arquivo da DCF para continuar.');
+    } else if (!acceptedDeclaration) {
+      Alert.alert('Documento', 'Confirme a declaração de veracidade para continuar.');
+    }
     return;
   }
   void handleSubmit();
@@ -319,7 +422,7 @@ const handlePrimaryAction = async () => {
             <TextField
               value={form.state}
               onChangeText={handleFieldChange('state')}
-              placeholder="MG"
+              placeholder="Ex: MG"
               maxLength={2}
             />
           </View>
@@ -362,13 +465,60 @@ const handlePrimaryAction = async () => {
     </View>
   );
 
+  const renderEmailVerificationBanner = () => {
+    if (isCheckingEmail) {
+      return (
+        <View style={styles.verificationCard}>
+          <ActivityIndicator size="small" color={colors.primary} />
+          <Text style={styles.verificationText}>Verificando...</Text>
+        </View>
+      );
+    }
+
+    if (!isEmailVerified) {
+      return (
+        <View style={styles.verificationCard}>
+          <View style={styles.verificationHeader}>
+            <Ionicons name="alert-circle-outline" size={24} color={colors.accent} />
+            <Text style={styles.verificationTitle}>Verificação necessária</Text>
+          </View>
+          <Text style={styles.verificationText}>
+            Não foi possível verificar seu e-mail automaticamente. Por favor, toque no botão abaixo para verificar novamente.
+          </Text>
+          <View style={styles.verificationActions}>
+            <TouchableOpacity
+              style={styles.verificationButton}
+              onPress={checkEmailVerificationStatus}
+              disabled={isCheckingEmail}
+            >
+              <Ionicons name="refresh-outline" size={18} color="#fff" />
+              <Text style={styles.verificationButtonText}>Verificar novamente</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.successCard}>
+        <Ionicons name="checkmark-circle" size={20} color="#22C55E" />
+        <Text style={styles.successText}>E-mail verificado</Text>
+      </View>
+    );
+  };
+
   const renderDocumentStep = () => (
     <View style={styles.card}>
       <Text style={styles.stepTitle}>Envie a DCF</Text>
       <Text style={styles.bodyText}>
         Aceitamos arquivos em PDF, JPG ou PNG com até 10MB. Certifique-se de que todas as páginas estejam legíveis.
       </Text>
-      <TouchableOpacity style={styles.documentPicker} onPress={pickDocument}>
+      {renderEmailVerificationBanner()}
+      <TouchableOpacity
+        style={[styles.documentPicker, !isEmailVerified && styles.documentPickerDisabled]}
+        onPress={isEmailVerified ? pickDocument : undefined}
+        disabled={!isEmailVerified}
+      >
         <Ionicons name="document-attach-outline" size={22} color={colors.primary} />
         <View style={styles.documentInfo}>
           <Text style={styles.documentTitle}>
@@ -701,5 +851,87 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: colors.accent,
     lineHeight: 18
+  },
+  verificationCard: {
+    borderRadius: spacing.md,
+    borderWidth: 1,
+    borderColor: '#DBEAFE',
+    backgroundColor: 'rgba(59, 130, 246, 0.05)',
+    padding: spacing.md,
+    gap: spacing.sm,
+    marginVertical: spacing.sm
+  },
+  verificationHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm
+  },
+  verificationTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.primary
+  },
+  verificationText: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    lineHeight: 20
+  },
+  verificationEmail: {
+    fontWeight: '600',
+    color: colors.textPrimary
+  },
+  verificationHelper: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    lineHeight: 18,
+    fontStyle: 'italic'
+  },
+  verificationActions: {
+    gap: spacing.sm,
+    marginTop: spacing.xs
+  },
+  verificationButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    backgroundColor: colors.primary,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: spacing.sm
+  },
+  verificationButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#fff'
+  },
+  verificationButtonSecondary: {
+    alignItems: 'center',
+    paddingVertical: spacing.sm
+  },
+  verificationButtonSecondaryText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.primary
+  },
+  successCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    borderRadius: spacing.md,
+    borderWidth: 1,
+    borderColor: '#D1FAE5',
+    backgroundColor: 'rgba(34, 197, 94, 0.05)',
+    padding: spacing.sm,
+    marginVertical: spacing.sm
+  },
+  successText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#22C55E'
+  },
+  documentPickerDisabled: {
+    opacity: 0.5,
+    backgroundColor: colors.border
   }
 });

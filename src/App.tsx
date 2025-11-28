@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
 import * as Notifications from 'expo-notifications';
+import * as Linking from 'expo-linking';
 import { ActivityIndicator, Alert, Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthScreen } from './screens/AuthScreen';
@@ -13,6 +14,7 @@ import { TableProvider } from './context/TableContext';
 import { NotificationProvider } from './context/NotificationContext';
 import { ConversationReadProvider } from './context/ConversationReadContext';
 import { SubscriptionProvider } from './context/SubscriptionContext';
+import { EmailConfirmationScreen } from './screens/EmailConfirmationScreen';
 import { colors, spacing } from './theme';
 import { supabase } from './lib/supabaseClient';
 import { AuthPayload } from './types/auth';
@@ -43,6 +45,8 @@ const App: React.FC = () => {
   const [isPasswordResetVisible, setPasswordResetVisible] = useState(false);
   const [isCompletingPasswordReset, setCompletingPasswordReset] = useState(false);
   const [isBootstrapping, setIsBootstrapping] = useState(true);
+  const [showEmailConfirmation, setShowEmailConfirmation] = useState(false);
+  const [isProcessingSignup, setIsProcessingSignup] = useState(false);
 
   const getProfileLabel = (type: string) => {
     switch (type) {
@@ -77,8 +81,57 @@ const App: React.FC = () => {
     void bootstrap();
   }, []);
 
+  // Handle deep links for email confirmation
+  useEffect(() => {
+    const handleDeepLink = async (event: { url: string }) => {
+      const url = event.url;
+      console.log('[App] Deep link received:', url);
+
+      // Extra: process Supabase tokens if presentes (access_token/refresh_token)
+      const parsed = Linking.parse(url);
+      const accessToken = parsed.queryParams?.access_token;
+      const refreshToken = parsed.queryParams?.refresh_token;
+      if (typeof accessToken === 'string' && typeof refreshToken === 'string') {
+        try {
+          await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken
+          });
+          console.log('[App] Session restored from deep link');
+        } catch (error) {
+          console.warn('[App] Failed to set session from deep link', error);
+        }
+      }
+
+      // Check if it's an email confirmation link
+      if (url.includes('type=signup') || url.includes('email-confirmation')) {
+        setShowEmailConfirmation(true);
+      }
+    };
+
+    // Check initial URL on app launch
+    Linking.getInitialURL()
+      .then(url => {
+        if (url) {
+          void handleDeepLink({ url });
+        }
+      })
+      .catch(error => {
+        console.warn('[App] Failed to get initial URL', error);
+      });
+
+    // Listen for deep links while app is running
+    const subscription = Linking.addEventListener('url', handleDeepLink);
+
+    return () => {
+      subscription.remove();
+    };
+  }, []);
+
   useEffect(() => {
     const { data: subscription } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log('[App] Auth state changed:', event);
+
       if (event === 'PASSWORD_RECOVERY' && session?.user?.email) {
         setPasswordResetEmail(session.user.email.toLowerCase());
         setPasswordResetVisible(true);
@@ -87,6 +140,7 @@ const App: React.FC = () => {
 
       if (event === 'SIGNED_OUT') {
         setProfile(null);
+        setShowEmailConfirmation(false);
         return;
       }
 
@@ -94,11 +148,21 @@ const App: React.FC = () => {
         (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') &&
         session?.user?.email
       ) {
+        // Don't interfere with ongoing signup process
+        if (isProcessingSignup) {
+          console.log('[App] Ignoring auth state change during signup process');
+          return;
+        }
+
         try {
           const email = session.user.email.toLowerCase();
+          console.log('[App] Auth state change: fetching profile for', email);
           const existingProfile = await fetchProfileByEmail(email);
           if (existingProfile) {
+            console.log('[App] Auth state change: profile found, updating state');
             setProfile(existingProfile);
+          } else {
+            console.log('[App] Auth state change: no profile found yet');
           }
         } catch (error) {
           console.warn('[Auth] Failed to sync profile after auth event', error);
@@ -109,7 +173,7 @@ const App: React.FC = () => {
     return () => {
       subscription?.subscription.unsubscribe();
     };
-  }, []);
+  }, [isProcessingSignup]);
 
   useEffect(() => {
     if (!profile) {
@@ -139,7 +203,8 @@ const App: React.FC = () => {
     return new Error('Não foi possível entrar. Tente novamente em instantes.');
   };
 
-  const handleAuthComplete = async ({ mode, profile: draftProfile, password }: AuthPayload) => {
+  const handleAuthComplete = async ({ mode, profile: draftProfile, password, otpVerified }: AuthPayload) => {
+    console.log('[App] handleAuthComplete called:', { mode, email: draftProfile.email, otpVerified });
     const email = draftProfile.email.trim().toLowerCase();
     const normalizedProfile: UserProfile = {
       ...draftProfile,
@@ -147,39 +212,148 @@ const App: React.FC = () => {
     };
 
     if (mode === 'signUp') {
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            profile_type: normalizedProfile.type
+      console.log('[App] Processing signup...');
+      setIsProcessingSignup(true);
+
+      try {
+        if (!otpVerified) {
+          throw new Error('Valide o código enviado por e-mail para concluir o cadastro.');
+        }
+
+        console.log('[App] Getting user from session...');
+        const { data: userData, error: userError } = await supabase.auth.getUser();
+        if (userError) {
+          console.error('[App] getUser failed:', userError);
+          throw new Error('Não foi possível confirmar seu e-mail. Tente novamente.');
+        }
+
+        const user = userData.user;
+        if (!user) {
+          console.error('[App] No user found after getUser');
+          throw new Error('Não encontramos sua conta após confirmar o código. Tente novamente.');
+        }
+
+        console.log('[App] User found:', { userId: user.id, email: user.email });
+        const userId = user.id;
+        const metadataType = (user.user_metadata as { profile_type?: string } | null)?.profile_type;
+        console.log('[App] User metadata type:', metadataType);
+
+        if (metadataType && metadataType !== normalizedProfile.type) {
+          console.warn('[App] Metadata type mismatch:', { metadataType, expectedType: normalizedProfile.type });
+          const profileLabel = getProfileLabel(metadataType);
+          await supabase.auth.signOut().catch(signOutError =>
+            console.warn('[Auth] signOut after metadata/profile type mismatch failed', signOutError)
+          );
+          throw new Error(
+            `Este e-mail está cadastrado como ${profileLabel}. Selecione o perfil correspondente para entrar.`
+          );
+        }
+
+        if (!metadataType || metadataType !== normalizedProfile.type) {
+          console.log('[App] Updating user metadata to:', normalizedProfile.type);
+          const { error: metadataError } = await supabase.auth.updateUser({
+            data: { profile_type: normalizedProfile.type }
+          });
+          if (metadataError) {
+            console.warn('[Auth] Failed to sync profile_type metadata after OTP signup', metadataError);
+          } else {
+            console.log('[App] User metadata updated successfully');
           }
         }
-      });
 
-      if (error) {
-        throw new Error(error.message || 'Não foi possível criar a conta.');
+        console.log('[App] Fetching existing profile by email:', email);
+        const existingProfile = await fetchProfileByEmail(email);
+        console.log('[App] Existing profile:', existingProfile ? 'found' : 'not found');
+
+        if (existingProfile) {
+          if (existingProfile.type !== normalizedProfile.type) {
+            console.warn('[App] Profile type mismatch:', { existingType: existingProfile.type, expectedType: normalizedProfile.type });
+            const profileLabel = getProfileLabel(existingProfile.type);
+            await supabase.auth.signOut().catch(signOutError =>
+              console.warn('[Auth] signOut after profile type mismatch failed', signOutError)
+            );
+            throw new Error(
+              `Este e-mail está cadastrado como ${profileLabel}. Selecione o perfil correspondente para entrar.`
+            );
+          }
+
+          console.log('[App] Merging existing profile with new data...');
+          const mergedProfile: UserProfile = {
+            ...existingProfile,
+            id: existingProfile.id ?? userId,
+            type: existingProfile.type,
+            company: normalizedProfile.company ?? existingProfile.company,
+            contact: normalizedProfile.contact ?? existingProfile.contact,
+            location: normalizedProfile.location ?? existingProfile.location,
+            status: existingProfile.status ?? (existingProfile.type === 'steel' ? 'pending' : 'approved')
+          };
+
+          console.log('[App] Upserting merged profile...');
+          const saved = await upsertProfile({ ...mergedProfile, id: userId });
+          console.log('[App] Profile upserted:', saved ? 'success' : 'failed');
+          setProfile(saved ?? mergedProfile);
+          console.log('[App] Profile state updated');
+
+          // Atualizar senha após perfil criado
+          if (password?.trim()) {
+            console.log('[App] Updating user password after profile merge...');
+            try {
+              const { error: passwordError } = await supabase.auth.updateUser({ password: password.trim() });
+              if (passwordError) {
+                console.error('[App] Password update failed:', passwordError);
+              } else {
+                console.log('[App] Password updated successfully');
+              }
+            } catch (pwdError) {
+              console.error('[App] Password update error:', pwdError);
+            }
+          }
+          return;
+        }
+
+        console.log('[App] Creating new profile...');
+        const profileToSave: UserProfile = {
+          ...normalizedProfile,
+          id: userId,
+          status: normalizedProfile.type === 'steel' ? 'pending' : 'approved',
+          documentStatus: normalizedProfile.type === 'supplier' ? 'missing' : undefined
+        };
+
+        console.log('[App] Seeding profile:', profileToSave);
+        const saved = await seedProfile(profileToSave);
+        console.log('[App] Profile seeded:', saved ? 'success' : 'failed');
+        if (normalizedProfile.type === 'steel') {
+          console.log('[App] Notifying steel signup...');
+          notifySteelSignup(profileToSave).catch(error =>
+            console.warn('[App] notifySteelSignup failed', error)
+          );
+        }
+        setProfile(saved ?? profileToSave);
+        console.log('[App] Profile state updated (new profile)');
+
+        // Agora que o perfil foi criado, vamos setar a senha
+        if (password?.trim()) {
+          console.log('[App] Updating user password after profile creation...');
+          try {
+            const { error: passwordError } = await supabase.auth.updateUser({ password: password.trim() });
+            if (passwordError) {
+              console.error('[App] Password update failed:', passwordError);
+              // Não bloquear o fluxo por causa da senha
+            } else {
+              console.log('[App] Password updated successfully');
+            }
+          } catch (pwdError) {
+            console.error('[App] Password update error:', pwdError);
+            // Não bloquear o fluxo
+          }
+        }
+      } catch (error) {
+        console.error('[App] Signup process failed:', error);
+        throw error;
+      } finally {
+        setIsProcessingSignup(false);
+        console.log('[App] Signup process completed, flag reset');
       }
-
-      const userId = data.user?.id;
-      if (!userId) {
-        throw new Error('Conta criada, verifique seu e-mail para confirmar o acesso.');
-      }
-
-      const profileToSave: UserProfile = {
-        ...normalizedProfile,
-        id: userId,
-        status: normalizedProfile.type === 'steel' ? 'pending' : 'approved',
-        documentStatus: normalizedProfile.type === 'supplier' ? 'missing' : undefined
-      };
-
-      const saved = await seedProfile(profileToSave);
-      if (normalizedProfile.type === 'steel') {
-        notifySteelSignup(profileToSave).catch(error =>
-          console.warn('[App] notifySteelSignup failed', error)
-        );
-      }
-      setProfile(saved ?? profileToSave);
       return;
     }
 
@@ -362,7 +536,9 @@ const App: React.FC = () => {
             logout={handleLogout}
             refreshProfile={handleRefreshProfile}
           >
-            <AdminNavigator />
+            <TableProvider>
+              <AdminNavigator />
+            </TableProvider>
           </ProfileProvider>
         </NavigationContainer>
       );
@@ -454,7 +630,9 @@ const App: React.FC = () => {
     <SafeAreaProvider>
       <View style={styles.container}>
         <StatusBar style="dark" />
-        {isBootstrapping ? (
+        {showEmailConfirmation ? (
+          <EmailConfirmationScreen onContinue={() => setShowEmailConfirmation(false)} />
+        ) : isBootstrapping ? (
           <View style={styles.loadingOverlay}>
             <ActivityIndicator size="large" color={colors.primary} />
           </View>

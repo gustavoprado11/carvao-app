@@ -3,11 +3,13 @@ import { Text } from 'react-native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { AdminSteelApprovalsScreen } from '../screens/AdminSteelApprovalsScreen';
 import { AdminSupplierApprovalsScreen } from '../screens/AdminSupplierApprovalsScreen';
+import { TablesScreen } from '../screens/TablesScreen';
 import { colors } from '../theme';
 
 export type AdminStackParamList = {
   SupplierApprovals: undefined;
   SteelApprovals: undefined;
+  SteelTables: undefined;
 };
 
 const Stack = createNativeStackNavigator<AdminStackParamList>();
@@ -26,9 +28,7 @@ export const AdminNavigator: React.FC = () => {
         component={AdminSupplierApprovalsScreen}
         options={({ navigation }) => ({
           title: 'Administração',
-          headerRight: () => (
-            <TextButton label="Siderúrgicas" onPress={() => navigation.navigate('SteelApprovals')} />
-          )
+          headerRight: () => <AdminHeaderNav navigation={navigation} current="SupplierApprovals" />
         })}
       />
       <Stack.Screen
@@ -36,18 +36,35 @@ export const AdminNavigator: React.FC = () => {
         component={AdminSteelApprovalsScreen}
         options={({ navigation }) => ({
           title: 'Administração',
-          headerRight: () => (
-            <TextButton label="Fornecedores" onPress={() => navigation.navigate('SupplierApprovals')} />
-          )
+          headerRight: () => <AdminHeaderNav navigation={navigation} current="SteelApprovals" />
+        })}
+      />
+      <Stack.Screen
+        name="SteelTables"
+        component={TablesScreen}
+        options={({ navigation }) => ({
+          title: 'Administração',
+          headerRight: () => <AdminHeaderNav navigation={navigation} current="SteelTables" />
         })}
       />
     </Stack.Navigator>
   );
 };
 
-const TextButton: React.FC<{ label: string; onPress: () => void }> = ({ label, onPress }) => (
+const AdminHeaderNav: React.FC<{ navigation: any; current: keyof AdminStackParamList }> = ({
+  navigation,
+  current
+}) => (
   <Text
-    onPress={onPress}
+    onPress={() => {
+      const next =
+        current === 'SupplierApprovals'
+          ? 'SteelApprovals'
+          : current === 'SteelApprovals'
+          ? 'SteelTables'
+          : 'SupplierApprovals';
+      navigation.navigate(next);
+    }}
     style={{
       color: colors.primary,
       fontWeight: '700',
@@ -55,6 +72,6 @@ const TextButton: React.FC<{ label: string; onPress: () => void }> = ({ label, o
       paddingHorizontal: 8
     }}
   >
-    {label}
+    {current === 'SupplierApprovals' ? 'Siderúrgicas' : current === 'SteelApprovals' ? 'Tabelas' : 'Fornecedores'}
   </Text>
 );

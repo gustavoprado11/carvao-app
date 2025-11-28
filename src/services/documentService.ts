@@ -6,6 +6,22 @@ import type { DocumentTypeId } from '../constants/documentTypes';
 
 const DOCUMENT_BUCKET = 'supplier_documents';
 
+// Mapeia typeId para o título padrão
+const getStandardTitleFromTypeId = (typeId: string, fallbackName?: string): string => {
+  const normalizedTypeId = typeId.toLowerCase().trim();
+  const titleMap: Record<string, string> = {
+    'dcf': 'DCF',
+    'dae': 'DAE (Taxa Florestal e Expediente)',
+    'dae_receipt': 'Comprovante pagamento DAE',
+    'car': 'CAR',
+    'mapa': 'MAPA',
+    'deed': 'Escritura do imóvel',
+    'lease': 'Contrato de arrendamento'
+  };
+  // Para documentos extras ou não mapeados, usa o fallbackName
+  return titleMap[normalizedTypeId] || fallbackName || typeId;
+};
+
 export type SupplierDocumentAsset = {
   uri: string;
   name?: string | null;
@@ -73,6 +89,9 @@ export const uploadSupplierDocument = async (
     throw new Error('Documento sem referência local para upload.');
   }
 
+  // Get authenticated user to use auth.uid() for storage path
+  const { data: { user } } = await supabase.auth.getUser();
+
   const finalName = sanitizeFileName(asset.name);
   const typeId = (asset.typeId ?? 'extra').toLowerCase() as SupplierDocumentAsset['typeId'];
   const isExtraDoc = typeId === 'extra';
@@ -89,7 +108,13 @@ export const uploadSupplierDocument = async (
     existingDoc = data;
   }
 
-  const targetPath = `${profile.id}/${Date.now()}-${finalName}`;
+  // Use auth.uid() instead of profile.id for storage path to match RLS policy
+  // The storage policy checks if the first path segment equals auth.uid()
+  const authUserId = user?.id;
+  if (!authUserId) {
+    throw new Error('Usuário não autenticado para upload de documento.');
+  }
+  const targetPath = `${authUserId}/${Date.now()}-${finalName}`;
 
   const base64 = await FileSystem.readAsStringAsync(asset.uri, {
     encoding: 'base64'
@@ -137,17 +162,17 @@ export const uploadSupplierDocument = async (
     // Documentos padrão: primeiro tenta encontrar documento existente, depois faz upsert
     const { data: existing } = await supabase
       .from('documents')
-      .select('id')
+      .select('id, name')
       .eq('owner_profile_id', profile.id)
       .eq('type_id', typeId)
       .maybeSingle();
 
     if (existing) {
-      // Atualiza documento existente
+      // Atualiza documento existente - PRESERVA o nome original se já existir
       const result = await supabase
         .from('documents')
         .update({
-          name: asset.name ?? finalName,
+          name: existing.name, // Mantém o nome original do card
           status: 'uploaded',
           storage_path: resolvedPath,
           updated_at: new Date().toISOString()
@@ -158,7 +183,7 @@ export const uploadSupplierDocument = async (
       record = result.data;
       recordError = result.error;
     } else {
-      // Cria novo documento
+      // Cria novo documento - usa o nome do asset apenas se for a primeira vez
       const result = await supabase
         .from('documents')
         .insert({
@@ -217,10 +242,13 @@ const mapSharedDocument = (record: DocumentRecord): DocumentItem => {
   const { data: urlData } = storagePath
     ? supabase.storage.from(DOCUMENT_BUCKET).getPublicUrl(storagePath)
     : { data: { publicUrl: undefined } as any };
+
+  const normalizedTypeId = record.type_id ? String(record.type_id).trim().toLowerCase() : '';
+
   return {
     id: record.id,
-    typeId: record.type_id ? String(record.type_id).trim().toLowerCase() : '',
-    title: record.name,
+    typeId: normalizedTypeId,
+    title: getStandardTitleFromTypeId(normalizedTypeId, record.name), // Usa título padrão ou nome para extras
     description: record.description ?? undefined,
     status: (record.status as DocumentItem['status']) ?? 'shared',
     updatedAt: record.updated_at ?? undefined,
@@ -279,21 +307,57 @@ export const deleteSupplierDocument = async (profileId: string, document: Docume
     throw new Error('Perfil ou documento inválido para exclusão.');
   }
 
+  console.log('[deleteSupplierDocument] Iniciando exclusão:', {
+    documentId: document.id,
+    typeId: document.typeId,
+    path: document.path,
+    profileId
+  });
+
+  // Verifica se o ID é um UUID válido (não é um typeId usado como placeholder)
+  const isValidRecordId = (id: string): boolean => {
+    // UUID tem 36 caracteres com formato específico
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    return uuidRegex.test(id);
+  };
+
+  const hasValidId = document.id && isValidRecordId(document.id);
+  console.log('[deleteSupplierDocument] ID válido?', hasValidId, 'ID:', document.id);
+
+  // Se não tem ID válido, não há nada para deletar do banco
+  if (!hasValidId) {
+    console.log('[deleteSupplierDocument] Documento não tem ID válido, não há registro no banco para deletar');
+    return;
+  }
+
+  // Deleta o registro do banco de dados primeiro
+  const { error: deleteError, data: deletedData } = await supabase
+    .from('documents')
+    .delete()
+    .eq('id', document.id)
+    .eq('owner_profile_id', profileId)
+    .select(); // Retorna os registros deletados
+
+  if (deleteError) {
+    console.error('[deleteSupplierDocument] Erro ao deletar registro do banco:', deleteError);
+    throw new Error(`Não foi possível remover o registro do documento: ${deleteError.message}`);
+  }
+
+  console.log('[deleteSupplierDocument] Registro deletado do banco:', deletedData);
+
+  // Se a exclusão do banco foi bem sucedida, tenta deletar do storage
   if (document.path) {
+    console.log('[deleteSupplierDocument] Deletando arquivo do storage:', document.path);
     const { error: removeError } = await supabase.storage.from(DOCUMENT_BUCKET).remove([document.path]);
     if (removeError) {
-      console.warn('[Supabase] deleteSupplierDocument storage remove failed', removeError);
-      throw new Error('Não foi possível remover o arquivo do armazenamento.');
+      console.warn('[deleteSupplierDocument] Erro ao remover do storage (não crítico):', removeError);
+      // Não lança erro aqui pois o registro já foi deletado do banco
+    } else {
+      console.log('[deleteSupplierDocument] Arquivo removido do storage com sucesso');
     }
   }
 
-  if (document.id && typeof document.id === 'string' && document.id.length > 8) {
-    const { error: deleteError } = await supabase.from('documents').delete().eq('id', document.id);
-    if (deleteError) {
-      console.warn('[Supabase] deleteSupplierDocument record delete failed', deleteError);
-      throw new Error('Não foi possível remover o registro do documento.');
-    }
-  }
+  console.log('[deleteSupplierDocument] Exclusão concluída com sucesso');
 };
 
 export const fetchDocumentsSharedWith = async (profileId: string): Promise<DocumentItem[]> => {
@@ -333,4 +397,42 @@ export const fetchDocumentsSharedWith = async (profileId: string): Promise<Docum
   }
 
   return (data as DocumentRecord[]).map(mapSharedDocument);
+};
+
+// Funções para gerenciar conexões persistentes entre fornecedor e siderúrgica
+export const getActiveConnections = async (supplierProfileId: string): Promise<string[]> => {
+  const { data, error } = await supabase.rpc('get_active_steel_connections', {
+    p_supplier_profile_id: supplierProfileId
+  });
+
+  if (error) {
+    console.warn('[Supabase] getActiveConnections failed', error);
+    return [];
+  }
+
+  return (data ?? []).map((row: any) => row.steel_profile_id).filter(Boolean);
+};
+
+export const connectSupplierToSteel = async (supplierProfileId: string, steelProfileId: string) => {
+  const { error } = await supabase.rpc('connect_supplier_to_steel', {
+    p_supplier_profile_id: supplierProfileId,
+    p_steel_profile_id: steelProfileId
+  });
+
+  if (error) {
+    console.error('[Supabase] connectSupplierToSteel failed', error);
+    throw new Error('Não foi possível criar a conexão.');
+  }
+};
+
+export const disconnectSupplierFromSteel = async (supplierProfileId: string, steelProfileId: string) => {
+  const { error } = await supabase.rpc('disconnect_supplier_from_steel', {
+    p_supplier_profile_id: supplierProfileId,
+    p_steel_profile_id: steelProfileId
+  });
+
+  if (error) {
+    console.error('[Supabase] disconnectSupplierFromSteel failed', error);
+    throw new Error('Não foi possível remover a conexão.');
+  }
 };

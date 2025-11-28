@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Modal,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -27,7 +28,10 @@ import {
   fetchDocumentsSharedWith,
   fetchOwnedDocuments,
   shareDocumentWithProfiles,
-  deleteSupplierDocument
+  deleteSupplierDocument,
+  getActiveConnections,
+  connectSupplierToSteel,
+  disconnectSupplierFromSteel
 } from '../services/documentService';
 import { fetchProfilesByType } from '../services/profileService';
 import type { UserProfile } from '../types/profile';
@@ -136,11 +140,13 @@ export const DocumentsScreen: React.FC = () => {
   const [steelOptions, setSteelOptions] = useState<UserProfile[]>([]);
   const [selectedSteelIds, setSelectedSteelIds] = useState<Set<string>>(new Set());
   const [loadingSteel, setLoadingSteel] = useState(false);
+  const [activeConnections, setActiveConnections] = useState<Set<string>>(new Set());
 
   const [sharedDocs, setSharedDocs] = useState<DocumentItem[]>([]);
   const [selectedSupplierId, setSelectedSupplierId] = useState<string | null>(null);
   const [loadingShared, setLoadingShared] = useState(false);
   const [loadingDocuments, setLoadingDocuments] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [selectedDoc, setSelectedDoc] = useState<DocumentItem | null>(null);
   const [selectedList, setSelectedList] = useState<'main' | 'extra'>('main');
   const [isSheetVisible, setSheetVisible] = useState(false);
@@ -176,28 +182,29 @@ export const DocumentsScreen: React.FC = () => {
     return withoutLease;
   }, [documents, includeLease, leaseDoc]);
 
-  useEffect(() => {
-    const loadShared = async () => {
-      if (profile.type !== 'steel') {
-        return;
-      }
-      if (!profile.id) {
-        console.warn('[Documents] steel profile sem id para buscar documentos compartilhados.');
-        return;
-      }
-      try {
-        setLoadingShared(true);
-        const docs = await fetchDocumentsSharedWith(profile.id);
-        setSharedDocs(docs);
-      } catch (error) {
-        console.warn('[Documents] load shared documents failed', error);
-        Alert.alert('Documentos', 'Não foi possível carregar os documentos compartilhados agora.');
-      } finally {
-        setLoadingShared(false);
-      }
-    };
-    loadShared();
+  const loadShared = useCallback(async () => {
+    if (profile.type !== 'steel') {
+      return;
+    }
+    if (!profile.id) {
+      console.warn('[Documents] steel profile sem id para buscar documentos compartilhados.');
+      return;
+    }
+    try {
+      setLoadingShared(true);
+      const docs = await fetchDocumentsSharedWith(profile.id);
+      setSharedDocs(docs);
+    } catch (error) {
+      console.warn('[Documents] load shared documents failed', error);
+      Alert.alert('Documentos', 'Não foi possível carregar os documentos compartilhados agora.');
+    } finally {
+      setLoadingShared(false);
+    }
   }, [profile.id, profile.type]);
+
+  useEffect(() => {
+    loadShared();
+  }, [loadShared]);
 
   const updateDocumentList = (
     setter: React.Dispatch<React.SetStateAction<DocumentItem[]>>,
@@ -207,46 +214,45 @@ export const DocumentsScreen: React.FC = () => {
     setter(prev => prev.map(doc => (doc.id === targetId ? { ...doc, ...payload } : doc)));
   };
 
+  const loadSupplierDocs = useCallback(async () => {
+    if (profile.type !== 'supplier' || !profile.id) {
+      return;
+    }
+    try {
+      setLoadingDocuments(true);
+      const remoteDocs = await fetchOwnedDocuments(profile.id);
+      const merged = DOCUMENT_REQUIREMENTS.map(req => {
+        const remote = remoteDocs.find(doc => normalizeTypeId(doc.typeId) === req.id);
+        if (remote) {
+          return {
+            ...remote,
+            typeId: normalizeTypeId(remote.typeId) || req.id,
+            title: req.title, // SEMPRE usa o título padrão do DOCUMENT_REQUIREMENTS
+            description: req.description // SEMPRE usa a descrição padrão
+          };
+        }
+        return {
+          id: req.id,
+          typeId: req.id,
+          title: req.title,
+          description: req.description,
+          status: 'missing' as DocumentStatus
+        };
+      });
+      setDocuments(merged);
+      // Extra docs (typeId === 'extra')
+      setExtraDocuments(remoteDocs.filter(doc => normalizeTypeId(doc.typeId) === 'extra'));
+    } catch (error) {
+      console.warn('[Documents] load supplier docs failed', error);
+      Alert.alert('Documentos', 'Não foi possível carregar seus documentos agora.');
+    } finally {
+      setLoadingDocuments(false);
+    }
+  }, [profile.id, profile.type, normalizeTypeId]);
+
   useEffect(() => {
-    const loadSupplierDocs = async () => {
-      if (profile.type !== 'supplier' || !profile.id) {
-        return;
-      }
-      try {
-        setLoadingDocuments(true);
-        const remoteDocs = await fetchOwnedDocuments(profile.id);
-        setDocuments(prev => {
-          const merged = DOCUMENT_REQUIREMENTS.map(req => {
-            const remote = remoteDocs.find(doc => normalizeTypeId(doc.typeId) === req.id);
-            if (remote) {
-              return {
-                ...remote,
-                typeId: normalizeTypeId(remote.typeId) || req.id,
-                title: remote.title || req.title,
-                description: remote.description ?? req.description
-              };
-            }
-            return {
-              id: req.id,
-              typeId: req.id,
-              title: req.title,
-              description: req.description,
-              status: 'missing' as DocumentStatus
-            };
-          });
-          return merged;
-        });
-        // Extra docs (typeId === 'extra')
-        setExtraDocuments(remoteDocs.filter(doc => normalizeTypeId(doc.typeId) === 'extra'));
-      } catch (error) {
-        console.warn('[Documents] load supplier docs failed', error);
-        Alert.alert('Documentos', 'Não foi possível carregar seus documentos agora.');
-      } finally {
-        setLoadingDocuments(false);
-      }
-    };
     loadSupplierDocs();
-  }, [profile.id, profile.type]);
+  }, [loadSupplierDocs]);
 
   const handleUpload = useCallback(
     async (item: DocumentItem, setter: React.Dispatch<React.SetStateAction<DocumentItem[]>>) => {
@@ -287,8 +293,23 @@ export const DocumentsScreen: React.FC = () => {
           updatedAt: timestamp,
           url: uploadResult.publicUrl,
           path: uploadResult.path,
-          title: item.title || asset.name || 'Documento'
+          title: item.title // Mantém o título original do card
         });
+
+        // Compartilha automaticamente com as conexões ativas
+        if (uploadResult.recordId && profile.id) {
+          try {
+            const connections = await getActiveConnections(profile.id);
+            if (connections.length > 0) {
+              await shareDocumentWithProfiles(uploadResult.recordId, connections);
+              console.log('[handleUpload] Document auto-shared with active connections:', connections);
+            }
+          } catch (error) {
+            console.warn('[handleUpload] Failed to auto-share with active connections:', error);
+            // Não mostra erro para o usuário, pois o upload foi bem-sucedido
+          }
+        }
+
         Alert.alert('Documento enviado', `${item.title || asset.name || 'Documento'} foi enviado com sucesso.`);
       } catch (error) {
         console.error('[Documents] upload failed:', error);
@@ -331,24 +352,54 @@ export const DocumentsScreen: React.FC = () => {
     async (item: DocumentItem, setter: React.Dispatch<React.SetStateAction<DocumentItem[]>>) => {
       try {
         if (item.status === 'missing') {
+          console.log('[handleDelete] Documento já está como missing, ignorando');
           return;
         }
+
+        console.log('[handleDelete] Iniciando exclusão:', {
+          id: item.id,
+          typeId: item.typeId,
+          title: item.title,
+          path: item.path,
+          status: item.status
+        });
+
+        // Exclui o documento do banco de dados e storage
         await deleteSupplierDocument(profile.id ?? '', item);
+
+        console.log('[handleDelete] Exclusão no banco concluída, atualizando estado local');
+
+        // Atualiza o estado local
         if (item.typeId === 'extra') {
+          // Remove completamente documentos extras
+          console.log('[handleDelete] Removendo documento extra da lista');
           setter(prev => prev.filter(doc => doc.id !== item.id));
         } else {
-          updateDocumentList(setter, item.id, {
-            status: 'missing',
-            url: undefined,
-            path: undefined,
-            updatedAt: undefined,
-            sharedWith: undefined
-          });
+          // Para documentos padrão, reseta para o estado inicial (missing)
+          console.log('[handleDelete] Resetando documento padrão para missing');
+          setter(prev => prev.map(doc => {
+            if (doc.id === item.id) {
+              return {
+                id: doc.typeId, // Volta para usar o typeId como id
+                typeId: doc.typeId,
+                title: doc.title,
+                description: doc.description,
+                status: 'missing' as const,
+                url: undefined,
+                path: undefined,
+                updatedAt: undefined,
+                sharedWith: undefined
+              };
+            }
+            return doc;
+          }));
         }
+
+        console.log('[handleDelete] Estado local atualizado com sucesso');
         Alert.alert('Documento', 'Arquivo excluído com sucesso.');
       } catch (error) {
-        console.warn('[Documents] delete failed', error);
-        Alert.alert('Documento', 'Não foi possível excluir o documento agora.');
+        console.error('[handleDelete] Erro ao excluir documento:', error);
+        Alert.alert('Documento', `Não foi possível excluir o documento agora. Erro: ${(error as any)?.message || error}`);
       }
     },
     [profile.id]
@@ -508,6 +559,21 @@ export const DocumentsScreen: React.FC = () => {
           path: uploadResult.path
         }
       ]);
+
+      // Compartilha automaticamente com as conexões ativas
+      if (uploadResult.recordId && profile.id) {
+        try {
+          const connections = await getActiveConnections(profile.id);
+          if (connections.length > 0) {
+            await shareDocumentWithProfiles(uploadResult.recordId, connections);
+            console.log('[handleAddExtraDocument] Document auto-shared with active connections:', connections);
+          }
+        } catch (error) {
+          console.warn('[handleAddExtraDocument] Failed to auto-share with active connections:', error);
+          // Não mostra erro para o usuário, pois o upload foi bem-sucedido
+        }
+      }
+
       Alert.alert('Documento enviado', `${resolvedName} foi enviado com sucesso.`);
     } catch (error) {
       Alert.alert('Upload', 'Não foi possível selecionar ou enviar o documento agora.');
@@ -675,15 +741,37 @@ export const DocumentsScreen: React.FC = () => {
       console.log('[Documents] Loading steel options...');
       await loadSteelOptions();
       console.log('[Documents] Steel options loaded successfully');
+
+      // Carrega conexões ativas para pré-marcar as siderúrgicas
+      if (profile.id) {
+        console.log('[Documents] Loading active connections...');
+        const connections = await getActiveConnections(profile.id);
+        console.log('[Documents] Active connections:', connections);
+        setActiveConnections(new Set(connections));
+        setSelectedSteelIds(new Set(connections));
+      }
     } catch (error) {
       console.error('[Documents] Error in handleOpenShareModal:', error);
     } finally {
       setShareButtonState('idle');
     }
-  }, [loadSteelOptions]);
+  }, [loadSteelOptions, profile.id]);
   const handleToggleLease = (value?: boolean) => {
     setIncludeLease(prev => (typeof value === 'boolean' ? value : !prev));
   };
+
+  const handleRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      if (profile.type === 'supplier') {
+        await loadSupplierDocs();
+      } else if (profile.type === 'steel') {
+        await loadShared();
+      }
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [profile.type, loadSupplierDocs, loadShared]);
 
   const handleShareAll = useCallback(async () => {
     try {
@@ -691,61 +779,115 @@ export const DocumentsScreen: React.FC = () => {
         Alert.alert('Compartilhar', 'Selecione ao menos uma siderúrgica para compartilhar.');
         return;
       }
+
+      if (!profile.id) {
+        Alert.alert('Erro', 'Perfil não identificado.');
+        return;
+      }
+
       const targetIds = Array.from(selectedSteelIds);
-      const uploadeds = [...documents, ...extraDocuments].filter(
-        doc =>
-          (doc.status === 'uploaded' || doc.status === 'shared') &&
-          (doc.typeId === 'lease' ? includeLease : true)
-      );
-      const isRecordId = (value?: string) => Boolean(value && value.length > 8 && !value.startsWith('extra-'));
-      const needsSync = uploadeds.some(doc => !isRecordId(doc.id));
-      let shareableDocs = uploadeds;
 
-      if (needsSync && profile.id) {
-        const remoteDocs = await fetchOwnedDocuments(profile.id);
-        const mergeWithRemote = (doc: DocumentItem) => {
-          if (isRecordId(doc.id)) {
-            return doc;
-          }
-          const match = remoteDocs.find(
-            remote =>
-              (doc.path && remote.path === doc.path) ||
-              (remote.typeId === doc.typeId && remote.title === doc.title)
-          );
-          return match ? { ...doc, id: match.id, path: match.path ?? doc.path, url: remote.url ?? doc.url } : doc;
-        };
-        shareableDocs = uploadeds.map(mergeWithRemote);
-        setDocuments(prev => prev.map(mergeWithRemote));
-        setExtraDocuments(prev => prev.map(mergeWithRemote));
+      // Descobre quais conexões foram adicionadas e quais foram removidas
+      const connectionsToAdd = targetIds.filter(id => !activeConnections.has(id));
+      const connectionsToRemove = Array.from(activeConnections).filter(id => !selectedSteelIds.has(id));
+
+      console.log('[handleShareAll] Connections to add:', connectionsToAdd);
+      console.log('[handleShareAll] Connections to remove:', connectionsToRemove);
+
+      // Remove conexões (isso também revoga os compartilhamentos)
+      for (const steelId of connectionsToRemove) {
+        await disconnectSupplierFromSteel(profile.id, steelId);
       }
 
-      const pendingWithoutId = shareableDocs.filter(doc => !isRecordId(doc.id));
-      if (pendingWithoutId.length > 0) {
-        Alert.alert('Compartilhar', 'Alguns documentos precisam ser reenviados antes de compartilhar.');
-        return;
+      // Adiciona novas conexões
+      for (const steelId of connectionsToAdd) {
+        await connectSupplierToSteel(profile.id, steelId);
       }
 
-      const shareTasks = shareableDocs
-        .filter(doc => doc.id)
-        .map(doc => shareDocumentWithProfiles(doc.id, targetIds));
-      if (shareTasks.length === 0) {
-        Alert.alert('Compartilhar', 'Envie os documentos antes de compartilhar.');
-        return;
+      // Compartilha documentos existentes com as novas conexões
+      if (connectionsToAdd.length > 0) {
+        const uploadeds = [...documents, ...extraDocuments].filter(
+          doc =>
+            (doc.status === 'uploaded' || doc.status === 'shared') &&
+            (doc.typeId === 'lease' ? includeLease : true)
+        );
+        const isRecordId = (value?: string) => Boolean(value && value.length > 8 && !value.startsWith('extra-'));
+        const needsSync = uploadeds.some(doc => !isRecordId(doc.id));
+        let shareableDocs = uploadeds;
+
+        if (needsSync && profile.id) {
+          const remoteDocs = await fetchOwnedDocuments(profile.id);
+          const mergeWithRemote = (doc: DocumentItem) => {
+            if (isRecordId(doc.id)) {
+              return doc;
+            }
+            const match = remoteDocs.find(
+              remote =>
+                (doc.path && remote.path === doc.path) ||
+                (remote.typeId === doc.typeId && remote.title === doc.title)
+            );
+            return match ? { ...doc, id: match.id, path: match.path ?? doc.path, url: match.url ?? doc.url } : doc;
+          };
+          shareableDocs = uploadeds.map(mergeWithRemote);
+          setDocuments(prev => prev.map(mergeWithRemote));
+          setExtraDocuments(prev => prev.map(mergeWithRemote));
+        }
+
+        const pendingWithoutId = shareableDocs.filter(doc => !isRecordId(doc.id));
+        if (pendingWithoutId.length > 0) {
+          Alert.alert('Compartilhar', 'Alguns documentos precisam ser reenviados antes de compartilhar.');
+          return;
+        }
+
+        const shareTasks = shareableDocs
+          .filter(doc => doc.id)
+          .map(doc => shareDocumentWithProfiles(doc.id, connectionsToAdd));
+
+        if (shareTasks.length > 0) {
+          await Promise.all(shareTasks);
+        }
       }
-      await Promise.all(shareTasks);
+
+      // Atualiza o estado de conexões ativas
+      setActiveConnections(new Set(targetIds));
+
       const names = steelOptions.filter(s => s.id && selectedSteelIds.has(s.id)).map(s => s.company ?? s.email);
       const sharedWith = names.length ? names : ['Siderúrgica selecionada'];
-      setDocuments(prev => prev.map(doc => ({ ...doc, status: 'shared', sharedWith })));
-      setExtraDocuments(prev => prev.map(doc => ({ ...doc, status: 'shared', sharedWith })));
+
+      // Atualiza apenas documentos que foram realmente enviados (uploaded ou já shared)
+      setDocuments(prev => prev.map(doc => {
+        if (doc.status === 'uploaded' || doc.status === 'shared') {
+          return { ...doc, status: 'shared', sharedWith };
+        }
+        return doc; // Mantém status original (missing, pending, etc)
+      }));
+
+      setExtraDocuments(prev => prev.map(doc => {
+        if (doc.status === 'uploaded' || doc.status === 'shared') {
+          return { ...doc, status: 'shared', sharedWith };
+        }
+        return doc; // Mantém status original (missing, pending, etc)
+      }));
+
       setShareModalVisible(false);
-      Alert.alert('Compartilhado', 'Documentação enviada para as siderúrgicas selecionadas.');
+
+      if (connectionsToAdd.length > 0 && connectionsToRemove.length === 0) {
+        Alert.alert('Conectado', 'Documentação compartilhada! Novos documentos serão automaticamente enviados para as siderúrgicas selecionadas.');
+      } else if (connectionsToRemove.length > 0 && connectionsToAdd.length === 0) {
+        Alert.alert('Desconectado', 'Conexão removida com sucesso.');
+      } else if (connectionsToAdd.length > 0 && connectionsToRemove.length > 0) {
+        Alert.alert('Atualizado', 'Conexões atualizadas com sucesso.');
+      } else {
+        Alert.alert('Compartilhado', 'Suas conexões foram mantidas.');
+      }
+
       setShareButtonState('success');
       setTimeout(() => setShareButtonState('idle'), 2200);
     } catch (error) {
       console.warn('[Documents] share all failed', error);
       Alert.alert('Compartilhar', 'Não foi possível compartilhar agora. Tente novamente.');
     }
-  }, [selectedSteelIds, documents, extraDocuments, steelOptions, includeLease, profile.id]);
+  }, [selectedSteelIds, activeConnections, documents, extraDocuments, steelOptions, includeLease, profile.id]);
 
   return (
     <View style={styles.root}>
@@ -764,7 +906,13 @@ export const DocumentsScreen: React.FC = () => {
                 Math.max(insets.bottom + spacing.xl, spacing.xxxl) + (isSupplier ? spacing.xxxl * 1.4 : 0)
             }
           ]}
-          bounces={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={handleRefresh}
+              tintColor={colors.surface}
+            />
+          }
           showsVerticalScrollIndicator={false}
         >
           <Text style={styles.title}>Documentos</Text>

@@ -62,6 +62,10 @@ export const AuthScreen: React.FC<Props> = ({ onAuthComplete }) => {
   const [isSendingReset, setIsSendingReset] = useState(false);
   const [resetFeedback, setResetFeedback] = useState<string | null>(null);
   const [adminCode, setAdminCode] = useState('');
+  const [otpCode, setOtpCode] = useState('');
+  const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
+  const [isOtpModalVisible, setOtpModalVisible] = useState(false);
+  const [pendingSignup, setPendingSignup] = useState<{ profile: UserProfile; password: string } | null>(null);
 
   const isSignup = mode === 'signUp';
   const allowAdminSignup = Boolean(adminSignupCode);
@@ -76,6 +80,12 @@ export const AuthScreen: React.FC<Props> = ({ onAuthComplete }) => {
   useEffect(() => {
     setAdminCode('');
   }, [primaryProfile, mode, isAdminMode]);
+
+  useEffect(() => {
+    setOtpModalVisible(false);
+    setPendingSignup(null);
+    setOtpCode('');
+  }, [mode]);
 
   const profileOptions = useMemo(
     () => [
@@ -120,11 +130,114 @@ export const AuthScreen: React.FC<Props> = ({ onAuthComplete }) => {
     allowAdminSignup
   ]);
 
+  const handleSendOtp = async (payload: UserProfile) => {
+    try {
+      const { error } = await supabase.auth.signInWithOtp({
+        email: payload.email,
+        options: {
+          shouldCreateUser: true,
+          data: {
+            profile_type: payload.type
+          }
+        }
+      });
+
+      if (error) {
+        throw new Error(error.message || 'Não foi possível enviar o código de verificação.');
+      }
+
+      setPendingSignup({ profile: payload, password });
+      setOtpCode('');
+      setOtpModalVisible(true);
+      Alert.alert(
+        'Código enviado',
+        'Enviamos um código de 6 dígitos para o seu e-mail. Digite-o para confirmar sua conta.'
+      );
+    } catch (error) {
+      const message = error instanceof Error && error.message
+        ? error.message
+        : 'Não foi possível enviar o código agora. Tente novamente.';
+      Alert.alert('Verificação de e-mail', message);
+      console.warn('[Auth] signInWithOtp failed', error);
+    }
+  };
+
+  const handleVerifyOtp = async () => {
+    if (!pendingSignup) {
+      console.warn('[Auth] handleVerifyOtp called without pendingSignup');
+      return;
+    }
+    const token = otpCode.trim();
+    if (!token) {
+      Alert.alert('Código de verificação', 'Informe o código recebido por e-mail.');
+      return;
+    }
+
+    try {
+      setIsVerifyingOtp(true);
+      console.log('[Auth] Starting OTP verification for:', pendingSignup.profile.email);
+
+      const { data, error } = await supabase.auth.verifyOtp({
+        email: pendingSignup.profile.email,
+        token,
+        type: 'email'
+      });
+
+      console.log('[Auth] verifyOtp response:', {
+        hasData: !!data,
+        hasSession: !!data?.session,
+        hasUser: !!data?.user,
+        error: error?.message
+      });
+
+      if (error || !data.session) {
+        throw new Error(error?.message || 'Código inválido ou expirado. Solicite um novo e tente novamente.');
+      }
+
+      console.log('[Auth] Calling onAuthComplete...');
+      const trimmedPassword = pendingSignup.password.trim();
+      await onAuthComplete({
+        mode: 'signUp',
+        profile: pendingSignup.profile,
+        password: trimmedPassword,
+        otpVerified: true
+      });
+      console.log('[Auth] onAuthComplete finished successfully');
+
+      if (pendingSignup.profile.type === 'steel') {
+        Alert.alert(
+          'Confirmação necessária',
+          'Código validado! Seu acesso como siderúrgica será liberado após a aprovação da equipe.'
+        );
+      }
+
+      setPendingSignup(null);
+      setOtpModalVisible(false);
+      console.log('[Auth] OTP verification completed successfully');
+    } catch (error) {
+      const message = error instanceof Error && error.message
+        ? error.message
+        : 'Não foi possível validar o código. Tente novamente.';
+      Alert.alert('Código de verificação', message);
+      console.error('[Auth] verifyOtp failed:', error);
+    } finally {
+      console.log('[Auth] Setting isVerifyingOtp to false');
+      setIsVerifyingOtp(false);
+    }
+  };
+
+  const handleResendOtp = async () => {
+    if (!pendingSignup) {
+      return;
+    }
+    await handleSendOtp(pendingSignup.profile);
+  };
+
   const handleSubmit = async () => {
     if (!isValid) {
       return;
     }
-    const trimmedEmail = email.trim();
+    const trimmedEmail = email.trim().toLowerCase();
     const payload: UserProfile = {
       type: resolvedProfileType,
       email: trimmedEmail,
@@ -134,6 +247,10 @@ export const AuthScreen: React.FC<Props> = ({ onAuthComplete }) => {
     };
     try {
       setIsSubmitting(true);
+      if (isSignup) {
+        await handleSendOtp(payload);
+        return;
+      }
       await runWithTimeout(
         onAuthComplete({
           mode,
@@ -141,12 +258,6 @@ export const AuthScreen: React.FC<Props> = ({ onAuthComplete }) => {
           password
         })
       );
-      if (isSignup && resolvedProfileType === 'steel') {
-        Alert.alert(
-          'Confirmação necessária',
-          'Enviamos um e-mail de verificação. Confirme o endereço para que possamos aprovar seu acesso como siderúrgica.'
-        );
-      }
     } catch (error) {
       const timeoutError = error instanceof Error && error.message === 'login-timeout';
       if (timeoutError) {
@@ -322,9 +433,9 @@ export const AuthScreen: React.FC<Props> = ({ onAuthComplete }) => {
             </View>
 
             <PrimaryButton
-              label={isSignup ? 'Criar conta' : 'Entrar'}
+              label={isSignup ? 'Receber código' : 'Entrar'}
               onPress={handleSubmit}
-              disabled={!isValid || isSubmitting}
+              disabled={!isValid || isSubmitting || isVerifyingOtp}
               loading={isSubmitting}
             />
             {isSignup ? (
@@ -381,6 +492,43 @@ export const AuthScreen: React.FC<Props> = ({ onAuthComplete }) => {
                     loading={isSendingReset}
                   />
                 </View>
+              </View>
+            </View>
+          </Modal>
+          <Modal
+            visible={isOtpModalVisible}
+            animationType="slide"
+            transparent
+            onRequestClose={() => setOtpModalVisible(false)}
+          >
+            <View style={styles.resetBackdrop}>
+              <View style={styles.resetCard}>
+                <Text style={styles.resetTitle}>Confirme seu e-mail</Text>
+                <Text style={styles.resetSubtitle}>
+                  Enviamos um código de 6 dígitos para {pendingSignup?.profile.email || email}.
+                </Text>
+                <TextField
+                  placeholder="Código"
+                  keyboardType="number-pad"
+                  autoCapitalize="none"
+                  value={otpCode}
+                  onChangeText={setOtpCode}
+                  maxLength={6}
+                />
+                <View style={styles.resetActions}>
+                  <Pressable onPress={() => setOtpModalVisible(false)} disabled={isVerifyingOtp}>
+                    <Text style={styles.resetCancel}>Editar dados</Text>
+                  </Pressable>
+                  <PrimaryButton
+                    label="Validar código"
+                    onPress={handleVerifyOtp}
+                    disabled={isVerifyingOtp}
+                    loading={isVerifyingOtp}
+                  />
+                </View>
+                <Pressable style={styles.resendLink} onPress={handleResendOtp} disabled={isVerifyingOtp}>
+                  <Text style={styles.resendText}>Reenviar código</Text>
+                </Pressable>
               </View>
             </View>
           </Modal>
@@ -543,5 +691,14 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     color: colors.textSecondary
+  },
+  resendLink: {
+    alignItems: 'center',
+    marginTop: spacing.sm
+  },
+  resendText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.primary
   }
 });

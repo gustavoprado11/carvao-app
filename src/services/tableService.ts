@@ -14,6 +14,9 @@ type PricingTableRecord = {
   schedule_type?: string | null;
   is_active?: boolean | null;
   updated_at?: string;
+  last_modified_by?: string | null;
+  last_modified_at?: string | null;
+  last_modified_by_type?: string | null;
 };
 
 type PricingRowRecord = {
@@ -46,6 +49,9 @@ export type PricingTable = {
   scheduleType?: ScheduleType;
   isActive?: boolean;
   rows: TableRow[];
+  lastModifiedBy?: string;
+  lastModifiedAt?: string;
+  lastModifiedByType?: 'admin' | 'owner';
 };
 
 const TABLES_TABLE = 'pricing_tables';
@@ -92,13 +98,16 @@ const mapTableRecord = (record: PricingTableRecord, rows: PricingRowRecord[]): P
   paymentTerms: record.payment_terms ?? undefined,
   scheduleType: (record.schedule_type as ScheduleType | null) ?? undefined,
   isActive: record.is_active ?? true,
-  rows: rows.map(mapRowRecord)
+  rows: rows.map(mapRowRecord),
+  lastModifiedBy: record.last_modified_by ?? undefined,
+  lastModifiedAt: record.last_modified_at ?? undefined,
+  lastModifiedByType: (record.last_modified_by_type as 'admin' | 'owner' | null) ?? undefined
 });
 
 export const fetchSteelTableByOwner = async (ownerEmail: string): Promise<PricingTable | null> => {
   const { data: tableRecord, error } = await supabase
     .from(TABLES_TABLE)
-    .select('id, owner_email, company, route, location, title, description, notes, payment_terms, schedule_type, is_active, updated_at')
+    .select('id, owner_email, company, route, location, title, description, notes, payment_terms, schedule_type, is_active, updated_at, last_modified_by, last_modified_at, last_modified_by_type')
     .eq('owner_email', ownerEmail.toLowerCase())
     .maybeSingle();
 
@@ -281,7 +290,7 @@ export const syncSteelTableMetadata = async (ownerEmail: string, metadata: Steel
 export const fetchSupplierTables = async (): Promise<PricingTable[]> => {
   const { data: tableRecords, error } = await supabase
     .from(TABLES_TABLE)
-    .select('id, owner_email, company, route, location, title, description, notes, payment_terms, schedule_type, is_active, updated_at')
+    .select('id, owner_email, company, route, location, title, description, notes, payment_terms, schedule_type, is_active, updated_at, last_modified_by, last_modified_at, last_modified_by_type')
     .order('updated_at', { ascending: false });
 
   if (error || !tableRecords) {
@@ -381,4 +390,67 @@ export const fetchSupplierTables = async (): Promise<PricingTable[]> => {
         isActive: mapped.isActive ?? true
       };
     });
+};
+
+/**
+ * Persiste tabela usando privilégios de admin via RPC admin_upsert_pricing_table
+ */
+export const adminPersistSteelTable = async (
+  ownerEmail: string,
+  table: PricingTable,
+  company?: string | null,
+  location?: string | null
+): Promise<PricingTable | null> => {
+  const normalizedTableId = table.id && uuidPattern.test(table.id) ? table.id : undefined;
+
+  const tablePayload = {
+    id: normalizedTableId ?? null,
+    company: company ?? null,
+    route: company ?? null,
+    location: location ?? null,
+    title: table.title,
+    description: table.description,
+    notes: table.notes,
+    payment_terms: table.paymentTerms ?? null,
+    schedule_type: table.scheduleType ?? null,
+    is_active: table.isActive ?? true
+  };
+
+  const normalizedRows = table.rows.map(row => ({
+    ...row,
+    id: normalizeRowId(row.id)
+  }));
+
+  const rowsPayload = normalizedRows.map(row => ({
+    id: row.id,
+    density_min: row.densityMin,
+    density_max: row.densityMax,
+    price_pf: row.pricePF,
+    price_pj: row.pricePJ,
+    unit: row.unit
+  }));
+
+  // Chamar RPC admin_upsert_pricing_table
+  console.log('[Admin] Chamando admin_upsert_pricing_table para:', ownerEmail.toLowerCase());
+  const { data: tableId, error } = await supabase.rpc('admin_upsert_pricing_table', {
+    p_owner_email: ownerEmail.toLowerCase(),
+    p_table: tablePayload,
+    p_rows: rowsPayload
+  });
+
+  if (error) {
+    console.error('[Supabase] adminPersistSteelTable RPC error:', JSON.stringify(error, null, 2));
+    throw error;
+  }
+
+  if (!tableId) {
+    console.error('[Supabase] adminPersistSteelTable no tableId returned');
+    throw new Error('Falha ao salvar tabela como admin - nenhum ID retornado.');
+  }
+
+  console.log('[Admin] Tabela salva com sucesso, ID:', tableId);
+
+  // Buscar tabela atualizada com campos de auditoria
+  const updatedTable = await fetchSteelTableByOwner(ownerEmail);
+  return updatedTable;
 };

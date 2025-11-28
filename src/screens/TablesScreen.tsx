@@ -25,11 +25,13 @@ import { useProfile } from '../context/ProfileContext';
 import { SupplierTablePreview, TableRow, useTable } from '../context/TableContext';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { SegmentedControl } from '../components/SegmentedControl';
-import { useSubscription } from '../context/SubscriptionContext';
 import { colors, spacing } from '../theme';
 import type { MainTabParamList } from '../navigation/MainTabs';
 import { supabase } from '../lib/supabaseClient';
 import { extractPriceTableFromFile } from '../services/priceTableAiService';
+import { fetchSteelProfilesByStatus } from '../services/profileService';
+import { getUnreadNotificationCount } from '../services/notificationService';
+import type { UserProfile } from '../types/profile';
 
 const unitOptions = [
   { label: 'metro', value: 'm3' as const },
@@ -97,8 +99,9 @@ export const TablesScreen: React.FC = () => {
   const { width } = useWindowDimensions();
   const isCompactLayout = width < 380;
   const isSteelProfile = profile.type === 'steel';
+  const isAdminProfile = profile.type === 'admin';
   const isSupplierProfile = profile.type === 'supplier';
-  const navigation = useNavigation<NavigationProp<MainTabParamList>>();
+  const navigation = useNavigation<NavigationProp<any>>();
   const {
     table,
     addRow,
@@ -113,9 +116,10 @@ export const TablesScreen: React.FC = () => {
     saveTable,
     supplierTables,
     refreshTableData,
+    loadTableForOwner,
+    saveTableForOwner,
     loading
   } = useTable();
-  const { activeReceipt } = useSubscription();
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [isSavingTable, setIsSavingTable] = useState(false);
   const [emailConfirmed, setEmailConfirmed] = useState(true);
@@ -130,10 +134,16 @@ export const TablesScreen: React.FC = () => {
   const [importSheetVisible, setImportSheetVisible] = useState(false);
   const [importingFileName, setImportingFileName] = useState<string | null>(null);
   const headerMeasurementsRef = useRef<Record<string, { header?: number; heading?: number; actions?: number }>>({});
-  const isSubscriptionActive = Boolean(activeReceipt);
-  const shouldShowSubscriptionGate = isSupplierProfile && !isSubscriptionActive && !__DEV__;
+
+  // Subscription é apenas para suppliers - admin e steel não precisam
+  const shouldShowSubscriptionGate = false;
   const overlappingRowIds = useMemo(() => findOverlappingRanges(table.rows), [table.rows]);
   const hasRangeOverlap = overlappingRowIds.size > 0;
+  const [approvedSteels, setApprovedSteels] = useState<UserProfile[]>([]);
+  const [adminSelectedSteel, setAdminSelectedSteel] = useState<UserProfile | null>(null);
+  const [isLoadingSteels, setLoadingSteels] = useState(false);
+  const [isLoadingSteelTable, setLoadingSteelTable] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   const getFieldError = (value?: string | null) => (!value?.trim() ? 'Campo obrigatório' : null);
   const updateHeaderMeasurement = useCallback((rowId: string, part: 'header' | 'heading' | 'actions', width: number) => {
@@ -151,7 +161,7 @@ export const TablesScreen: React.FC = () => {
     }
   }, []);
 
-  const isFirstPublish = isSteelProfile && !table.id;
+  const isFirstPublish = (isSteelProfile || (isAdminProfile && adminSelectedSteel)) && !table.id;
   const firstSetupSteps = [
     'Defina todas as faixas de densidade e unidades aceitas.',
     'Informe os preços para PF e PJ em cada faixa.',
@@ -220,6 +230,35 @@ export const TablesScreen: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    if (!isAdminProfile) {
+      return;
+    }
+    const loadSteels = async () => {
+      setLoadingSteels(true);
+      try {
+        const profiles = await fetchSteelProfilesByStatus('approved');
+        setApprovedSteels(profiles);
+      } finally {
+        setLoadingSteels(false);
+      }
+    };
+    void loadSteels();
+  }, [isAdminProfile]);
+
+  useEffect(() => {
+    if (isSteelProfile && profile.email) {
+      const loadUnreadCount = async () => {
+        const count = await getUnreadNotificationCount(profile.email!);
+        setUnreadCount(count);
+      };
+      loadUnreadCount();
+
+      const interval = setInterval(loadUnreadCount, 30000);
+      return () => clearInterval(interval);
+    }
+  }, [isSteelProfile, profile.email]);
+
+  useEffect(() => {
     if (isFirstPublish && shouldAutoShowFirstPrompt) {
       setFirstSetupModalVisible(true);
     }
@@ -234,6 +273,18 @@ export const TablesScreen: React.FC = () => {
     if (shouldAutoShowFirstPrompt) {
       setShouldAutoShowFirstPrompt(false);
     }
+  };
+
+  const formatAuditDate = (isoDate?: string) => {
+    if (!isoDate) return 'Data não disponível';
+    const date = new Date(isoDate);
+    return date.toLocaleString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
   };
 
   const handleRefresh = useCallback(async () => {
@@ -433,10 +484,40 @@ export const TablesScreen: React.FC = () => {
     navigation.navigate('Conversas');
   };
 
+  const handleSelectSteelProfile = useCallback(
+    async (item: UserProfile) => {
+      if (!item.email) {
+        return;
+      }
+      setAdminSelectedSteel(item);
+      setIsLoadingSteelTable(true);
+      try {
+        await loadTableForOwner(item.email, {
+          company: item.company ?? null,
+          location: item.location ?? null
+        });
+      } finally {
+        setIsLoadingSteelTable(false);
+      }
+    },
+    [loadTableForOwner]
+  );
+
   const handleSaveTable = async () => {
     try {
       setIsSavingTable(true);
-      await saveTable();
+      if (isAdminProfile) {
+        if (!adminSelectedSteel?.email) {
+          Alert.alert('Selecione uma siderúrgica', 'Escolha qual siderúrgica deseja atualizar antes de salvar.');
+          return;
+        }
+        await saveTableForOwner(adminSelectedSteel.email, {
+          company: adminSelectedSteel.company ?? null,
+          location: adminSelectedSteel.location ?? null
+        });
+      } else {
+        await saveTable();
+      }
       Alert.alert('Tabela salva', 'Suas condições foram atualizadas com sucesso.');
     } catch (error) {
       Alert.alert('Erro ao salvar tabela', 'Não foi possível salvar a tabela. Tente novamente em instantes.');
@@ -482,6 +563,69 @@ export const TablesScreen: React.FC = () => {
     </View>
   );
 
+  const renderAdminView = () => (
+    <>
+      <View style={styles.header}>
+        <Text style={styles.title}>Publicar tabelas das siderúrgicas</Text>
+        <Text style={styles.subtitle}>
+          Escolha uma siderúrgica aprovada para abrir e publicar a tabela de preços em nome dela.
+        </Text>
+      </View>
+
+      <View style={styles.adminPickerCard}>
+        <View style={styles.blockHeader}>
+          <Text style={styles.blockTitle}>Siderúrgicas aprovadas</Text>
+          {isLoadingSteels ? <ActivityIndicator color={colors.primary} /> : null}
+        </View>
+        {approvedSteels.length === 0 && !isLoadingSteels ? (
+          <Text style={styles.adminEmptyText}>Nenhuma siderúrgica aprovada encontrada.</Text>
+        ) : null}
+        {approvedSteels.map(item => {
+          const isSelected = adminSelectedSteel?.email === item.email;
+          return (
+            <TouchableOpacity
+              key={item.id ?? item.email}
+              style={[styles.adminSteelCard, isSelected && styles.adminSteelCardSelected]}
+              onPress={() => void handleSelectSteelProfile(item)}
+              activeOpacity={0.9}
+            >
+              <View style={styles.adminSteelInfo}>
+                <Text style={styles.adminSteelName}>{item.company ?? item.email}</Text>
+                <Text style={styles.adminSteelLocation}>{item.location ?? 'Localização não informada'}</Text>
+              </View>
+              <Ionicons
+                name={isSelected ? 'checkmark-circle' : 'chevron-forward'}
+                size={18}
+                color={isSelected ? colors.primary : colors.textSecondary}
+              />
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      {adminSelectedSteel ? (
+        <View style={styles.adminSelectedBanner}>
+          <View>
+            <Text style={styles.adminSelectedLabel}>Editando como administrador</Text>
+            <Text style={styles.adminSelectedValue}>{adminSelectedSteel.company ?? adminSelectedSteel.email}</Text>
+          </View>
+          <Text style={styles.adminSelectedLocation}>{adminSelectedSteel.location ?? 'Localização não informada'}</Text>
+        </View>
+      ) : null}
+
+      {adminSelectedSteel ? (
+        isLoadingSteelTable ? (
+          <View style={styles.loadingState}>
+            <ActivityIndicator color={colors.primary} />
+            <Text style={styles.loadingText}>Carregando tabela...</Text>
+          </View>
+        ) : (
+          renderSteelView()
+        )
+      ) : null}
+    </>
+  );
+
   const renderSteelView = () => (
     <>
       {isFirstPublish ? (
@@ -516,6 +660,18 @@ export const TablesScreen: React.FC = () => {
           Ao desativar, sua tabela deixa de aparecer para fornecedores na aba Tabelas.
         </Text>
       </View>
+
+      {table.lastModifiedByType === 'admin' && (
+        <View style={styles.adminEditBanner}>
+          <Ionicons name="shield-checkmark" size={20} color={colors.primary} />
+          <View style={{ flex: 1, marginLeft: 12 }}>
+            <Text style={styles.adminEditTitle}>Editada por administrador</Text>
+            <Text style={styles.adminEditSubtitle}>
+              Última modificação: {formatAuditDate(table.lastModifiedAt)}
+            </Text>
+          </View>
+        </View>
+      )}
 
       <View style={styles.tableContainer}>
         <View style={[styles.blockCard, isCompactLayout && styles.blockCardCompact]}>
@@ -907,11 +1063,11 @@ export const TablesScreen: React.FC = () => {
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
           alwaysBounceVertical
         >
-          {isSteelProfile ? renderSteelView() : renderSupplierView()}
-          {!isSteelProfile && activeChatTable ? <View style={styles.stickySpacer} /> : null}
+          {isAdminProfile ? renderAdminView() : isSteelProfile ? renderSteelView() : renderSupplierView()}
+          {!isSteelProfile && !isAdminProfile && activeChatTable ? <View style={styles.stickySpacer} /> : null}
         </ScrollView>
       </SafeAreaView>
-      {!isSteelProfile && activeChatTable ? (
+      {!isSteelProfile && !isAdminProfile && activeChatTable ? (
         <View style={styles.stickyChatBar}>
           <View style={styles.stickyChatInfo}>
             <Text style={styles.stickyChatLabel}>Conversar com</Text>
@@ -1054,6 +1210,71 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontWeight: '600',
     textAlign: 'center'
+  },
+  adminPickerCard: {
+    backgroundColor: colors.surface,
+    borderRadius: spacing.lg,
+    padding: spacing.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    gap: spacing.sm
+  },
+  adminEmptyText: {
+    color: colors.textSecondary,
+    fontSize: 14
+  },
+  adminSteelCard: {
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.sm,
+    borderRadius: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.xs
+  },
+  adminSteelCardSelected: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primaryMuted
+  },
+  adminSteelInfo: {
+    flex: 1,
+    gap: spacing.xs / 2
+  },
+  adminSteelName: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: colors.textPrimary
+  },
+  adminSteelLocation: {
+    fontSize: 13,
+    color: colors.textSecondary
+  },
+  adminSelectedBanner: {
+    backgroundColor: colors.primaryMuted,
+    borderRadius: spacing.lg,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: spacing.md
+  },
+  adminSelectedLabel: {
+    color: colors.primary,
+    fontSize: 13,
+    fontWeight: '700'
+  },
+  adminSelectedValue: {
+    color: colors.textPrimary,
+    fontSize: 16,
+    fontWeight: '700'
+  },
+  adminSelectedLocation: {
+    color: colors.textSecondary,
+    fontSize: 13
   },
   header: {
     gap: spacing.xs
@@ -1843,5 +2064,40 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: colors.textSecondary,
     textAlign: 'center'
+  },
+  adminEditBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.primaryMuted,
+    padding: spacing.lg,
+    borderRadius: spacing.md,
+    marginHorizontal: spacing.xxl,
+    marginBottom: spacing.lg,
+    borderWidth: 1,
+    borderColor: colors.primary
+  },
+  adminEditTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.primary,
+    marginBottom: spacing.xs / 2
+  },
+  adminEditSubtitle: {
+    fontSize: 14,
+    color: colors.textSecondary
+  },
+  notificationBadge: {
+    backgroundColor: '#EF4444',
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 6
+  },
+  notificationBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700'
   }
 });
