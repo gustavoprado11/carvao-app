@@ -21,7 +21,7 @@ import { AuthPayload } from './types/auth';
 import { UserProfile } from './types/profile';
 import { fetchProfileByEmail, seedProfile, upsertProfile } from './services/profileService';
 import { syncSteelTableMetadata } from './services/tableService';
-import { notifySteelSignup } from './services/adminNotificationService';
+import { notifyAdminsAboutProfileSignup, notifySteelSignup } from './services/adminNotificationService';
 import { TextField } from './components/TextField';
 import { PrimaryButton } from './components/PrimaryButton';
 import { PendingApprovalScreen } from './screens/PendingApprovalScreen';
@@ -329,6 +329,11 @@ const App: React.FC = () => {
             console.warn('[App] notifySteelSignup failed', error)
           );
         }
+
+        // Notificar admins sobre qualquer novo cadastro (supplier ou steel)
+        notifyAdminsAboutProfileSignup(profileToSave).catch(error =>
+          console.warn('[App] notifyAdminsAboutProfileSignup failed', error)
+        );
         setProfile(saved ?? profileToSave);
         console.log('[App] Profile state updated (new profile)');
 
