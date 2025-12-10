@@ -231,7 +231,8 @@ const checkEmailVerificationStatus = async () => {
 
       // Validação básica de tamanho (10MB) para evitar falhas no upload.
       const info = await FileSystem.getInfoAsync(asset.uri);
-      if (info.size && info.size > 10 * 1024 * 1024) {
+      const fileSize = (info as { size?: number }).size;
+      if (typeof fileSize === 'number' && fileSize > 10 * 1024 * 1024) {
         Alert.alert('Documento', 'O arquivo deve ter no máximo 10MB. Escolha um arquivo menor.');
         return;
       }

@@ -925,7 +925,7 @@ export const DocumentsScreen: React.FC = () => {
             transparent
             onRequestClose={() => setShareModalVisible(false)}
           >
-            <View style={styles.modalBackdrop}>
+            <View style={[styles.modalBackdrop, { paddingBottom: Math.max(insets.bottom, spacing.lg) }]}>
               <View style={styles.modalCard}>
                 <View style={styles.modalHeader}>
                   <Text style={styles.modalTitle}>Compartilhar documentos</Text>
@@ -974,6 +974,7 @@ export const DocumentsScreen: React.FC = () => {
               style={[
                 styles.sheetContainer,
                 {
+                  paddingBottom: Math.max(insets.bottom, spacing.md),
                   transform: [
                     {
                       translateY: sheetOpacity.interpolate({
@@ -1046,7 +1047,7 @@ export const DocumentsScreen: React.FC = () => {
             animationType="fade"
             onRequestClose={() => setAddExtraModalVisible(false)}
           >
-            <View style={styles.addModalBackdrop}>
+            <View style={[styles.addModalBackdrop, { paddingBottom: Math.max(insets.bottom, spacing.lg) }]}>
               <View style={styles.addModalCard}>
                 <Text style={styles.modalTitle}>Novo documento</Text>
                 <Text style={styles.modalSubtitle}>Digite um nome e escolha o arquivo.</Text>
@@ -1487,6 +1488,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md
+  },
+  sheetTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.textPrimary
+  },
+  sheetSubtitle: {
+    fontSize: 13,
+    color: colors.textSecondary
   },
   sheetDocIcon: {
     width: 36,

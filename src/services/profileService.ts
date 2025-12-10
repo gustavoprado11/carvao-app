@@ -27,7 +27,15 @@ const TABLE_NAME = 'profiles';
 
 const toDomainProfile = (record: ProfileRecord): UserProfile => {
   const type = (record.type as UserProfile['type']) ?? 'supplier';
-  const status = (record.status as ProfileStatus) ?? (type === 'steel' ? 'approved' : undefined);
+  const normalizedStatus = record.status?.trim().toLowerCase();
+  const status: ProfileStatus | undefined =
+    normalizedStatus === 'approved'
+      ? 'approved'
+      : normalizedStatus === 'pending'
+      ? 'pending'
+      : type === 'steel'
+      ? 'pending'
+      : undefined;
   const documentStatus =
     (record.document_status as UserProfile['documentStatus']) ?? (type === 'supplier' ? 'missing' : undefined);
 
@@ -218,7 +226,9 @@ export const fetchSteelProfilesByStatus = async (status: ProfileStatus): Promise
   });
 
   if (!error && data) {
-    return (data as ProfileRecord[]).map(toDomainProfile);
+    return (data as ProfileRecord[])
+      .map(toDomainProfile)
+      .filter(profile => profile.status === status);
   }
 
   console.warn('[Supabase] get_steel_profiles_by_status RPC fallback', error);
@@ -236,7 +246,9 @@ export const fetchSteelProfilesByStatus = async (status: ProfileStatus): Promise
     return [];
   }
 
-  return (tableData as ProfileRecord[]).map(toDomainProfile);
+  return (tableData as ProfileRecord[])
+    .map(toDomainProfile)
+    .filter(profile => profile.status === status);
 };
 
 export const updateProfileStatus = async (profileId: string, status: ProfileStatus): Promise<UserProfile | null> => {

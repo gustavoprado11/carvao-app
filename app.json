@@ -3,7 +3,7 @@
     "name": "Carvão Connect",
     "slug": "carvao-connect",
     "scheme": "carvaoconnect",
-    "version": "0.1.1",
+    "version": "0.1.3",
     "sdkVersion": "54.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon-1024.png",
@@ -19,7 +19,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.gustavocprado.carvaoconnect",
-      "buildNumber": "24",
+      "buildNumber": "28",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSUserNotificationUsageDescription": "Usamos notificações para avisar sobre novas mensagens e atualizações das siderúrgicas."

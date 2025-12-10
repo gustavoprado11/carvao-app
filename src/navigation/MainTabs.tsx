@@ -8,6 +8,7 @@ import { ConversationsStack } from './ConversationsStack';
 import { DocumentsScreen } from '../screens/DocumentsScreen';
 import { colors } from '../theme';
 import { MessageNotificationListener } from '../components/MessageNotificationListener';
+import { TableNotificationListener } from '../components/TableNotificationListener';
 import { useConversationRead } from '../context/ConversationReadContext';
 
 export type MainTabParamList = {
@@ -28,6 +29,7 @@ export const MainTabs: React.FC = () => {
   return (
     <>
       <MessageNotificationListener />
+      <TableNotificationListener />
       <Tab.Navigator
       screenOptions={({ route }) => ({
         headerShown: false,

@@ -34,12 +34,14 @@ export type SupplierTablePreview = {
   company: string;
   location: string;
   route: string;
+  ownerEmail?: string;
   updatedAt: string;
   notes: string;
   paymentTerms?: string;
   scheduleType?: ScheduleType;
   rows: TableRow[];
   isActive: boolean;
+  hasTable: boolean;
   lastModifiedBy?: string;
   lastModifiedAt?: string;
   lastModifiedByType?: 'admin' | 'owner';
@@ -117,12 +119,14 @@ const mapPricingTableToPreview = (pricingTable: PricingTable): SupplierTablePrev
   company: pricingTable.company ?? 'Empresa não informada',
   location: pricingTable.location ?? 'Localização não informada',
   route: pricingTable.company ?? '—',
+  ownerEmail: pricingTable.ownerEmail,
   updatedAt: pricingTable.updatedAt ?? 'Atualizado recentemente',
   notes: pricingTable.notes,
   paymentTerms: pricingTable.paymentTerms ?? undefined,
   scheduleType: pricingTable.scheduleType ?? undefined,
   rows: pricingTable.rows,
   isActive: pricingTable.isActive ?? true,
+  hasTable: pricingTable.hasTable !== false,
   lastModifiedBy: pricingTable.lastModifiedBy,
   lastModifiedAt: pricingTable.lastModifiedAt,
   lastModifiedByType: pricingTable.lastModifiedByType

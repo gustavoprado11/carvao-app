@@ -97,6 +97,48 @@ export const AdminSteelApprovalsScreen: React.FC = () => {
     []
   );
 
+  const handleUnapprove = useCallback(
+    async (item: UserProfile) => {
+      const itemId = item.id;
+      if (!itemId) {
+        Alert.alert('Desaprovar', 'Registro inválido. Tente novamente.');
+        return;
+      }
+      Alert.alert(
+        'Desaprovar siderúrgica',
+        `Tem certeza que deseja desaprovar ${item.company ?? item.email}? Ela perderá o acesso ao aplicativo até ser aprovada novamente.`,
+        [
+          { text: 'Cancelar', style: 'cancel' },
+          {
+            text: 'Desaprovar',
+            style: 'destructive',
+            onPress: async () => {
+              try {
+                setApprovingId(itemId);
+                const updated = await updateProfileStatus(itemId, 'pending');
+                if (!updated) {
+                  Alert.alert('Desaprovar', 'Não foi possível concluir agora.');
+                  return;
+                }
+                setProfiles(prev => ({
+                  pending: [updated, ...prev.pending.filter(profile => profile.id !== itemId)],
+                  approved: prev.approved.filter(profile => profile.id !== itemId)
+                }));
+                Alert.alert(
+                  'Siderúrgica desaprovada',
+                  `${updated.company ?? updated.email} foi movida para pendentes.`
+                );
+              } finally {
+                setApprovingId(null);
+              }
+            }
+          }
+        ]
+      );
+    },
+    []
+  );
+
   const renderItem = useCallback(
     ({ item }: { item: UserProfile }) => {
       const isPending = statusFilter === 'pending';
@@ -140,11 +182,19 @@ export const AdminSteelApprovalsScreen: React.FC = () => {
               loading={isApproving}
               disabled={isApproving}
             />
-          ) : null}
+          ) : (
+            <PrimaryButton
+              label="Desaprovar siderúrgica"
+              onPress={() => handleUnapprove(item)}
+              loading={isApproving}
+              disabled={isApproving}
+              style={styles.unapproveButton}
+            />
+          )}
         </View>
       );
     },
-    [approvingId, handleApprove, statusFilter]
+    [approvingId, handleApprove, handleUnapprove, statusFilter]
   );
 
   const keyExtractor = useCallback((item: UserProfile) => item.id ?? item.email, []);
@@ -307,5 +357,8 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     fontSize: 15,
     marginTop: spacing.xl
+  },
+  unapproveButton: {
+    backgroundColor: '#EF4444'
   }
 });

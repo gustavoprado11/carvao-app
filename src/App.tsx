@@ -26,6 +26,7 @@ import { TextField } from './components/TextField';
 import { PrimaryButton } from './components/PrimaryButton';
 import { PendingApprovalScreen } from './screens/PendingApprovalScreen';
 import { SupplierAccessGate } from './screens/SupplierAccessGate';
+import { PushTokenRegistrar } from './components/PushTokenRegistrar';
 
 const navigationTheme = {
   ...DefaultTheme,
@@ -588,6 +589,7 @@ const App: React.FC = () => {
         >
           <SubscriptionProvider>
             <NotificationProvider>
+              <PushTokenRegistrar />
               <ConversationReadProvider>
                 <TableProvider>
                   <MainTabs />

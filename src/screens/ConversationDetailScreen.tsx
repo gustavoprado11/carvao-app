@@ -345,8 +345,8 @@ Os principais documentos são:
       <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right', 'bottom']}>
         <KeyboardAvoidingView
           style={styles.keyboardAvoider}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 80 : 0}
+          behavior="padding"
+          keyboardVerticalOffset={Platform.select({ ios: 80, android: 100 })}
         >
           <View style={styles.container}>
           <View style={styles.messagesWrapper}>
@@ -462,7 +462,7 @@ Os principais documentos são:
       >
         <View style={styles.quickReplyModalBackdrop}>
           <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            behavior="padding"
             style={styles.quickReplyModalAvoider}
           >
             <ScrollView

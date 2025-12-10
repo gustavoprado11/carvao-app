@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<lint>
+    <!-- Suprimir warnings de APIs de edge-to-edge descontinuadas no Android 15 -->
+    <!-- Essas APIs são usadas por bibliotecas de terceiros e serão corrigidas -->
+    <!-- quando as bibliotecas forem atualizadas pelos mantenedores -->
+    <issue id="DeprecatedSinceApi" severity="informational">
+        <ignore regexp="setStatusBarColor|setNavigationBarColor|getStatusBarColor|getNavigationBarColor|LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES|LAYOUT_IN_DISPLAY_CUTOUT_MODE_DEFAULT" />
+    </issue>
+
+    <!-- Permite o uso temporário dessas APIs até que as bibliotecas sejam atualizadas -->
+    <issue id="ObsoleteSdkInt" severity="informational" />
+</lint>

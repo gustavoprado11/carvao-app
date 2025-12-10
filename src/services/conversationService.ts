@@ -7,6 +7,9 @@ import {
   SendMessagePayload,
   StartConversationPayload
 } from '../types/conversation';
+import { fetchPushTokensByEmail } from './pushTokenService';
+import { sendExpoPush } from './pushNotificationService';
+import { fetchProfileByEmail } from './profileService';
 
 type ConversationRecord = {
   id: string;
@@ -181,6 +184,8 @@ export const sendMessage = async (payload: SendMessagePayload): Promise<Conversa
 
   await updateConversationMetadata(payload.conversationId, payload.body, message.sentAt);
 
+  void notifyRecipientAboutMessage(payload.conversationId, payload.senderEmail, payload.body);
+
   return message;
 };
 
@@ -216,4 +221,41 @@ export const fetchConversationById = async (conversationId: string): Promise<Con
   }
 
   return mapConversation(data as ConversationRecord);
+};
+
+const notifyRecipientAboutMessage = async (conversationId: string, senderEmail: string, body: string) => {
+  try {
+    const conversation = await fetchConversationById(conversationId);
+    if (!conversation) {
+      return;
+    }
+
+    const normalizedSender = senderEmail.toLowerCase();
+    const recipientEmail =
+      conversation.supplierEmail.toLowerCase() === normalizedSender
+        ? conversation.steelEmail.toLowerCase()
+        : conversation.supplierEmail.toLowerCase();
+
+    const recipientTokens = await fetchPushTokensByEmail(recipientEmail);
+    if (recipientTokens.length === 0) {
+      return;
+    }
+
+    const counterpartProfile = await fetchProfileByEmail(normalizedSender);
+    const title =
+      counterpartProfile?.company ??
+      counterpartProfile?.contact ??
+      counterpartProfile?.email ??
+      'Nova mensagem';
+
+    const snippet = body.trim().slice(0, 140) || 'Você recebeu uma nova mensagem.';
+
+    await sendExpoPush(recipientTokens, {
+      title,
+      body: snippet,
+      data: { conversationId }
+    });
+  } catch (error) {
+    console.warn('[Push] Failed to notify recipient about message', error);
+  }
 };

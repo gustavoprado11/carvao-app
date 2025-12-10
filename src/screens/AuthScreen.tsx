@@ -314,7 +314,8 @@ export const AuthScreen: React.FC<Props> = ({ onAuthComplete }) => {
       <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
         <KeyboardAvoidingView
           style={styles.container}
-          behavior={Platform.select({ ios: 'padding', android: undefined })}
+          behavior="padding"
+          keyboardVerticalOffset={Platform.select({ ios: 0, android: 20 })}
         >
           <ScrollView contentContainerStyle={styles.content} bounces={false}>
             <View style={styles.hero}>

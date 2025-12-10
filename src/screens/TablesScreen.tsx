@@ -32,6 +32,7 @@ import { extractPriceTableFromFile } from '../services/priceTableAiService';
 import { fetchSteelProfilesByStatus } from '../services/profileService';
 import { getUnreadNotificationCount } from '../services/notificationService';
 import type { UserProfile } from '../types/profile';
+import { useSubscription } from '../context/SubscriptionContext';
 
 const unitOptions = [
   { label: 'metro', value: 'm3' as const },
@@ -136,7 +137,8 @@ export const TablesScreen: React.FC = () => {
   const headerMeasurementsRef = useRef<Record<string, { header?: number; heading?: number; actions?: number }>>({});
 
   // Subscription é apenas para suppliers - admin e steel não precisam
-  const shouldShowSubscriptionGate = false;
+  const { activeReceipt } = useSubscription();
+  const shouldShowSubscriptionGate = isSupplierProfile && !activeReceipt;
   const overlappingRowIds = useMemo(() => findOverlappingRanges(table.rows), [table.rows]);
   const hasRangeOverlap = overlappingRowIds.size > 0;
   const [approvedSteels, setApprovedSteels] = useState<UserProfile[]>([]);
@@ -490,14 +492,14 @@ export const TablesScreen: React.FC = () => {
         return;
       }
       setAdminSelectedSteel(item);
-      setIsLoadingSteelTable(true);
+      setLoadingSteelTable(true);
       try {
         await loadTableForOwner(item.email, {
           company: item.company ?? null,
           location: item.location ?? null
         });
       } finally {
-        setIsLoadingSteelTable(false);
+        setLoadingSteelTable(false);
       }
     },
     [loadTableForOwner]
@@ -981,33 +983,50 @@ export const TablesScreen: React.FC = () => {
               </TouchableOpacity>
               {isExpanded ? (
                 <View style={styles.supplierBody}>
-                  <View style={styles.metaInfoGrid}>
-                    <View style={styles.metaInfoCard}>
-                      <Text style={styles.infoLabel} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
-                        Forma de pagamento
+                  {item.hasTable ? (
+                    <>
+                      <View style={styles.metaInfoGrid}>
+                        <View style={styles.metaInfoCard}>
+                          <Text style={styles.infoLabel} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
+                            Forma de pagamento
+                          </Text>
+                          <Text style={styles.infoValue}>{item.paymentTerms?.trim() || 'Não informado'}</Text>
+                        </View>
+                        <View style={styles.metaInfoCard}>
+                          <Text style={styles.infoLabel} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
+                            Agendamento ou fila
+                          </Text>
+                          <Text
+                            style={styles.infoValue}
+                            numberOfLines={1}
+                            ellipsizeMode="tail"
+                            adjustsFontSizeToFit
+                            minimumFontScale={0.9}
+                          >
+                            {formatScheduleLabel(item.scheduleType)}
+                          </Text>
+                        </View>
+                      </View>
+                      {item.rows.map((row, index) => renderReadOnlyRow(row, index))}
+                      <View style={styles.notesBox}>
+                        <Text style={styles.sectionTitle}>Observações</Text>
+                        <Text style={styles.notesText}>{item.notes?.trim() || 'Nenhuma observação adicional.'}</Text>
+                      </View>
+                    </>
+                  ) : (
+                    <View style={styles.missingTableBox}>
+                      <Text style={styles.missingTableTitle}>Tabela não cadastrada</Text>
+                      <Text style={styles.missingTableText}>
+                        A {item.company} ainda não cadastrou sua tabela de preços, caso queira mais informações, envie
+                        uma mensagem.
                       </Text>
-                      <Text style={styles.infoValue}>{item.paymentTerms?.trim() || 'Não informado'}</Text>
+                      <PrimaryButton
+                        label="Enviar mensagem"
+                        onPress={handleOpenConversation}
+                        style={styles.missingTableButton}
+                      />
                     </View>
-                    <View style={styles.metaInfoCard}>
-                      <Text style={styles.infoLabel} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
-                        Agendamento ou fila
-                      </Text>
-                      <Text
-                        style={styles.infoValue}
-                        numberOfLines={1}
-                        ellipsizeMode="tail"
-                        adjustsFontSizeToFit
-                        minimumFontScale={0.9}
-                      >
-                        {formatScheduleLabel(item.scheduleType)}
-                      </Text>
-                    </View>
-                  </View>
-                  {item.rows.map((row, index) => renderReadOnlyRow(row, index))}
-                  <View style={styles.notesBox}>
-                    <Text style={styles.sectionTitle}>Observações</Text>
-                    <Text style={styles.notesText}>{item.notes?.trim() || 'Nenhuma observação adicional.'}</Text>
-                  </View>
+                  )}
                 </View>
               ) : null}
             </View>
@@ -1064,10 +1083,12 @@ export const TablesScreen: React.FC = () => {
           alwaysBounceVertical
         >
           {isAdminProfile ? renderAdminView() : isSteelProfile ? renderSteelView() : renderSupplierView()}
-          {!isSteelProfile && !isAdminProfile && activeChatTable ? <View style={styles.stickySpacer} /> : null}
+          {!isSteelProfile && !isAdminProfile && activeChatTable && activeChatTable.hasTable !== false ? (
+            <View style={styles.stickySpacer} />
+          ) : null}
         </ScrollView>
       </SafeAreaView>
-      {!isSteelProfile && !isAdminProfile && activeChatTable ? (
+      {!isSteelProfile && !isAdminProfile && activeChatTable && activeChatTable.hasTable !== false ? (
         <View style={styles.stickyChatBar}>
           <View style={styles.stickyChatInfo}>
             <Text style={styles.stickyChatLabel}>Conversar com</Text>
@@ -1908,6 +1929,28 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primaryMuted,
     padding: spacing.md,
     gap: spacing.xs
+  },
+  missingTableBox: {
+    borderRadius: spacing.sm,
+    backgroundColor: colors.surface,
+    padding: spacing.lg,
+    gap: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.border
+  },
+  missingTableTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: colors.textPrimary
+  },
+  missingTableText: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    lineHeight: 20
+  },
+  missingTableButton: {
+    alignSelf: 'flex-start',
+    marginTop: spacing.xs
   },
   loadingState: {
     backgroundColor: colors.surface,

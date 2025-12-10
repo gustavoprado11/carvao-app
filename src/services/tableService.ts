@@ -34,6 +34,7 @@ type ProfileLookupRecord = {
   type: string;
   company?: string | null;
   location?: string | null;
+  status?: string | null;
 };
 
 export type PricingTable = {
@@ -41,6 +42,7 @@ export type PricingTable = {
   company?: string;
   route?: string;
   location?: string;
+  ownerEmail?: string;
   updatedAt?: string;
   title: string;
   description: string;
@@ -48,6 +50,7 @@ export type PricingTable = {
   paymentTerms?: string;
   scheduleType?: ScheduleType;
   isActive?: boolean;
+  hasTable?: boolean;
   rows: TableRow[];
   lastModifiedBy?: string;
   lastModifiedAt?: string;
@@ -91,6 +94,7 @@ const mapTableRecord = (record: PricingTableRecord, rows: PricingRowRecord[]): P
   company: record.company ?? undefined,
   route: record.route ?? undefined,
   location: record.location ?? undefined,
+  ownerEmail: record.owner_email ?? undefined,
   updatedAt: record.updated_at ?? undefined,
   title: record.title,
   description: record.description,
@@ -98,6 +102,7 @@ const mapTableRecord = (record: PricingTableRecord, rows: PricingRowRecord[]): P
   paymentTerms: record.payment_terms ?? undefined,
   scheduleType: (record.schedule_type as ScheduleType | null) ?? undefined,
   isActive: record.is_active ?? true,
+  hasTable: true,
   rows: rows.map(mapRowRecord),
   lastModifiedBy: record.last_modified_by ?? undefined,
   lastModifiedAt: record.last_modified_at ?? undefined,
@@ -288,60 +293,99 @@ export const syncSteelTableMetadata = async (ownerEmail: string, metadata: Steel
 };
 
 export const fetchSupplierTables = async (): Promise<PricingTable[]> => {
+  let approvedSteelProfiles: ProfileLookupRecord[] = [];
+  let fallbackProfileLookupFailed = false;
+  const normalizeStatus = (value?: string | null) => value?.trim().toLowerCase() ?? null;
+
+  const { data: approvedProfiles, error: approvedProfilesError } = await supabase.rpc(
+    'get_steel_profiles_by_status',
+    {
+      target_status: 'approved'
+    }
+  );
+
+  if (!approvedProfilesError && approvedProfiles) {
+    const normalizedProfiles = (approvedProfiles as ProfileLookupRecord[]).map(profile => ({
+      ...profile,
+      status: normalizeStatus(profile.status)
+    }));
+    approvedSteelProfiles = normalizedProfiles.filter(profile => normalizeStatus(profile.status) === 'approved');
+  } else {
+    console.warn('[Supabase] fetchSupplierTables approved profiles lookup failed', approvedProfilesError);
+    const { data: fallbackProfiles, error: fallbackError } = await supabase
+      .from('profiles')
+      .select('email, type, company, location, status')
+      .eq('type', 'steel')
+      .eq('status', 'approved');
+
+    if (!fallbackError && fallbackProfiles) {
+      approvedSteelProfiles = (fallbackProfiles as ProfileLookupRecord[]).filter(
+        profile => normalizeStatus(profile.status) === 'approved'
+      );
+    } else {
+      fallbackProfileLookupFailed = true;
+      console.warn('[Supabase] fetchSupplierTables fallback profile lookup failed', fallbackError);
+    }
+  }
+
   const { data: tableRecords, error } = await supabase
     .from(TABLES_TABLE)
-    .select('id, owner_email, company, route, location, title, description, notes, payment_terms, schedule_type, is_active, updated_at, last_modified_by, last_modified_at, last_modified_by_type')
+    .select(
+      'id, owner_email, company, route, location, title, description, notes, payment_terms, schedule_type, is_active, updated_at, last_modified_by, last_modified_at, last_modified_by_type'
+    )
     .order('updated_at', { ascending: false });
 
-  if (error || !tableRecords) {
+  if (error) {
     console.warn('[Supabase] fetchSupplierTables failed', error);
-    return [];
   }
 
-  const resolvedTableRecords = tableRecords as PricingTableRecord[];
+  const resolvedTableRecords = (tableRecords ?? []) as PricingTableRecord[];
   const tableIds = resolvedTableRecords.map(record => record.id);
-
-  if (tableIds.length === 0) {
-    return [];
-  }
-
   const ownerEmails = Array.from(
     new Set(
       resolvedTableRecords
         .map(record => record.owner_email?.toLowerCase() ?? null)
-        .filter((value): value is string => !!value)
+        .filter((value): value is string => Boolean(value))
     )
   );
 
-  if (ownerEmails.length === 0) {
-    return [];
-  }
+  const steelProfilesMap = new Map<string, ProfileLookupRecord>();
+  approvedSteelProfiles.forEach(profile => {
+    if (profile.email) {
+      steelProfilesMap.set(profile.email.toLowerCase(), profile);
+    }
+  });
 
-  let profileLookupFailed = false;
-  const steelProfiles = new Map<string, ProfileLookupRecord>();
-
-  const { data: profileRecords, error: profileError } = await supabase
-    .from('profiles')
-    .select('email, type, company, location')
-    .in('email', ownerEmails);
+  const approvedEmails = new Set<string>(Array.from(steelProfilesMap.keys()));
 
   if (ownerEmails.length > 0) {
-    if (profileError) {
-      profileLookupFailed = true;
-      console.warn('[Supabase] fetchSupplierTables profile lookup failed', profileError);
-    } else if (profileRecords) {
-      (profileRecords as ProfileLookupRecord[]).forEach(profile => {
-        if (profile.type === 'steel') {
-          steelProfiles.set(profile.email.toLowerCase(), profile);
+    const { data: ownerProfileRecords, error: ownerProfileError } = await supabase
+      .from('profiles')
+      .select('email, status, company, location, type')
+      .in('email', ownerEmails);
+
+    if (ownerProfileError) {
+      console.warn('[Supabase] fetchSupplierTables owner profile lookup failed', ownerProfileError);
+    } else if (ownerProfileRecords) {
+      (ownerProfileRecords as ProfileLookupRecord[]).forEach(profile => {
+        if (normalizeStatus(profile.status) === 'approved' && profile.type === 'steel' && profile.email) {
+          const normalizedEmail = profile.email.toLowerCase();
+          approvedEmails.add(normalizedEmail);
+          if (!steelProfilesMap.has(normalizedEmail)) {
+            steelProfilesMap.set(normalizedEmail, profile);
+          }
         }
       });
     }
   }
 
-  const { data: rowRecords, error: rowsError } = await supabase
-    .from(ROWS_TABLE)
-    .select('id, table_id, density_min, density_max, price_pf, price_pj, unit')
-    .in('table_id', tableIds);
+  const { data: rowRecords, error: rowsError } =
+    tableIds.length > 0
+      ? await supabase
+          .from(ROWS_TABLE)
+          .select('id, table_id, density_min, density_max, price_pf, price_pj, unit')
+          .in('table_id', tableIds)
+      : { data: [], error: null };
 
   if (rowsError) {
     console.warn('[Supabase] fetchSupplierTables rows failed', rowsError);
@@ -356,26 +400,18 @@ export const fetchSupplierTables = async (): Promise<PricingTable[]> => {
     });
   }
 
-  return resolvedTableRecords
+  const mappedTables = resolvedTableRecords
+    .filter(record => record.is_active !== false)
     .filter(record => {
-      if (record.is_active === false) {
-        return false;
-      }
       const ownerEmail = record.owner_email?.toLowerCase();
       if (!ownerEmail) {
         return false;
       }
-      if (profileLookupFailed) {
-        return true;
-      }
-      if (steelProfiles.size === 0) {
-        return true;
-      }
-      return steelProfiles.has(ownerEmail);
+      return approvedEmails.has(ownerEmail);
     })
     .map(record => {
       const ownerEmail = record.owner_email?.toLowerCase() ?? '';
-      const profile = steelProfiles.get(ownerEmail);
+      const profile = steelProfilesMap.get(ownerEmail);
       const rowsForTable = rowsByTable.get(record.id) ?? [];
       const mapped = mapTableRecord(record, rowsError ? [] : rowsForTable);
       const companyName = profile?.company ?? mapped.company ?? 'Empresa não informada';
@@ -387,9 +423,51 @@ export const fetchSupplierTables = async (): Promise<PricingTable[]> => {
         location: location ?? undefined,
         route: routeInfo,
         updatedAt: formatUpdatedAt(record.updated_at),
-        isActive: mapped.isActive ?? true
+        isActive: mapped.isActive ?? true,
+        ownerEmail: ownerEmail || mapped.ownerEmail,
+        hasTable: true
       };
     });
+
+  const ownersWithTable = new Set(
+    mappedTables
+      .map(table => table.ownerEmail?.toLowerCase() ?? null)
+      .filter((value): value is string => Boolean(value))
+  );
+
+  const placeholderTables: PricingTable[] =
+    fallbackProfileLookupFailed || steelProfilesMap.size === 0
+      ? []
+      : Array.from(steelProfilesMap.values())
+          .map(profile => profile.email?.toLowerCase() ?? null)
+          .filter((email): email is string => Boolean(email))
+          .filter(email => !ownersWithTable.has(email))
+          .map(email => {
+            const profile = steelProfilesMap.get(email);
+            return {
+              id: `placeholder-${email}`,
+              company: profile?.company ?? 'Empresa não informada',
+              route: profile?.company ?? undefined,
+              location: profile?.location ?? undefined,
+              ownerEmail: email,
+              updatedAt: 'Aguardando tabela',
+              title: 'Tabela pendente',
+              description: 'Aguardando publicação da siderúrgica',
+              notes: '',
+              paymentTerms: undefined,
+              scheduleType: undefined,
+              isActive: true,
+              hasTable: false,
+              rows: []
+            } as PricingTable;
+          });
+
+  return [...mappedTables, ...placeholderTables].sort((a, b) => {
+    if (a.hasTable !== b.hasTable) {
+      return a.hasTable ? -1 : 1;
+    }
+    return (a.company ?? '').localeCompare(b.company ?? '', 'pt-BR');
+  });
 };
 
 /**

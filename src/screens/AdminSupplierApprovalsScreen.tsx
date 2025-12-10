@@ -23,6 +23,7 @@ import {
   updateSupplierDocumentStatus
 } from '../services/profileService';
 import { useProfile } from '../context/ProfileContext';
+import { sendPushToEmail } from '../services/pushNotificationService';
 
 type Buckets = Record<SupplierDocumentStatus, UserProfile[]>;
 
@@ -116,6 +117,10 @@ export const AdminSupplierApprovalsScreen: React.FC = () => {
         }
         moveBetweenBuckets(updated, item.documentStatus ?? 'pending');
         Alert.alert('Fornecedor aprovado', `${updated.company ?? updated.email} liberado para uso.`);
+        void sendPushToEmail(updated.email, {
+          title: 'Cadastro aprovado',
+          body: 'Seu cadastro foi aprovado. Agora você já pode acessar as funcionalidades do Carvão Connect.'
+        });
       } finally {
         setActionId(null);
       }
@@ -124,15 +129,16 @@ export const AdminSupplierApprovalsScreen: React.FC = () => {
   );
 
   const handleReject = useCallback(() => {
-    if (!rejectModal.target?.id) {
+    const target = rejectModal.target;
+    const targetId = target?.id;
+    if (!targetId) {
       setRejectModal({ visible: false, target: null, notes: '' });
       return;
     }
     const notes = rejectModal.notes.trim() || 'Documento inválido. Reenvie a DCF correta.';
-    const target = rejectModal.target;
     const previousStatus = target.documentStatus ?? 'pending';
-    setActionId(target.id);
-    updateSupplierDocumentStatus(target.id, 'rejected', notes, adminProfile.email)
+    setActionId(targetId);
+    updateSupplierDocumentStatus(targetId, 'rejected', notes, adminProfile.email)
       .then(updated => {
         if (!updated) {
           Alert.alert('Reprovar', 'Não foi possível reprovar agora.');
@@ -140,6 +146,10 @@ export const AdminSupplierApprovalsScreen: React.FC = () => {
         }
         moveBetweenBuckets(updated, previousStatus);
         Alert.alert('Documento reprovado', 'O fornecedor foi notificado para reenviar a DCF.');
+        void sendPushToEmail(updated.email, {
+          title: 'Documento reprovado',
+          body: 'Seu documento foi reprovado. Reenvie a DCF para liberar seu acesso.'
+        });
       })
       .catch(error => {
         console.warn('[AdminSupplier] reject failed', error);

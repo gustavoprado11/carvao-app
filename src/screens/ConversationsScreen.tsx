@@ -20,7 +20,7 @@ import { useProfile } from '../context/ProfileContext';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { TextField } from '../components/TextField';
 import { colors, spacing } from '../theme';
-import { fetchProfileByEmail, fetchProfilesByType, fetchSupplierProfilesByEmails } from '../services/profileService';
+import { fetchProfileByEmail, fetchSteelProfilesByStatus, fetchSupplierProfilesByEmails } from '../services/profileService';
 import { fetchConversationsByProfile, startConversation } from '../services/conversationService';
 import type { ConversationPreview } from '../types/conversation';
 import type { UserProfile } from '../types/profile';
@@ -173,11 +173,16 @@ export const ConversationsScreen: React.FC = () => {
         setSteelPartners([]);
         return;
       }
-      const partners = await fetchProfilesByType('steel');
-      const approvedOrMissingStatus = partners.filter(
-        item => !item.status || item.status === 'approved'
-      );
-      const sorted = approvedOrMissingStatus.slice().sort((a, b) => {
+      const partners = await fetchSteelProfilesByStatus('approved');
+      const uniqueByEmail = new Map<string, UserProfile>();
+      partners.forEach(partner => {
+        const email = partner.email?.toLowerCase() ?? '';
+        if (email && !uniqueByEmail.has(email)) {
+          uniqueByEmail.set(email, partner);
+        }
+      });
+      const dedupedApproved = Array.from(uniqueByEmail.values());
+      const sorted = dedupedApproved.slice().sort((a, b) => {
         const nameA = (a.company ?? a.contact ?? a.email).toLowerCase();
         const nameB = (b.company ?? b.contact ?? b.email).toLowerCase();
         return nameA.localeCompare(nameB);

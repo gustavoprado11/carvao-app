@@ -7,6 +7,7 @@ import { NotificationProvider } from '../context/NotificationContext';
 import { ConversationReadProvider } from '../context/ConversationReadContext';
 import { TableProvider } from '../context/TableContext';
 import { MainTabs } from '../navigation/MainTabs';
+import { PushTokenRegistrar } from '../components/PushTokenRegistrar';
 
 export const SupplierAccessGate: React.FC = () => {
   const { profile } = useProfile();
@@ -56,6 +57,7 @@ export const SupplierAccessGate: React.FC = () => {
 
   return (
     <NotificationProvider>
+      <PushTokenRegistrar />
       <ConversationReadProvider>
         <TableProvider>
           <MainTabs />
