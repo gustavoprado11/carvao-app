@@ -20,6 +20,17 @@ Aplicativo móvel (Expo + React Native) que conecta fornecedores de carvão às 
    ```
 3. Use o Expo Go (Android/iOS) ou emuladores para visualizar o app.
 
+## Portal web (Next.js)
+- O portal web fica em `web/` e reutiliza os mesmos serviços Supabase do app (perfis supplier/steel/admin, tabelas, documentos e conversas).
+- Variáveis obrigatórias: `NEXT_PUBLIC_SUPABASE_URL` e `NEXT_PUBLIC_SUPABASE_ANON_KEY` (as mesmas do mobile).
+- Para rodar:
+  ```bash
+  cd web
+  npm install
+  npm run dev
+  ```
+- Rotas principais: `/portal/login` (autenticação), `/portal` (dashboard), `/portal/tabelas`, `/portal/documentos`, `/portal/conversas` e `/portal/admin` (aprovações).
+
 ## Segurança e operação
 
 ### Confirmação de e-mail
