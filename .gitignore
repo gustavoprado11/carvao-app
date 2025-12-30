@@ -19,6 +19,8 @@ android/app/build/
 **/build/
 **/dist/
 **/.expo/
+**/.next/
+**/.gradle-temp/
 # Variáveis de ambiente
 .env
 .env.local
